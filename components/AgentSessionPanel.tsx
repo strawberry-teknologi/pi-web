@@ -25,7 +25,7 @@ const STATS_POLL_MS = 3000;
  * it. Read on open and whenever a run starts or ends; polled while one runs,
  * on a visible page, one request at a time.
  */
-function useAgentUsage(ids: readonly string[], runningKey: string): Record<string, SessionUsageSummary> {
+export function useAgentUsage(ids: readonly string[], runningKey: string, refreshKey = 0): Record<string, SessionUsageSummary> {
   const [usage, setUsage] = useState<Record<string, SessionUsageSummary>>({});
   const idsKey = ids.join(",");
   useEffect(() => {
@@ -62,7 +62,7 @@ function useAgentUsage(ids: readonly string[], runningKey: string): Record<strin
       clearInterval(timer);
       controller.abort();
     };
-  }, [idsKey, runningKey]);
+  }, [idsKey, runningKey, refreshKey]);
   return usage;
 }
 
@@ -80,7 +80,7 @@ function usageTooltip(usage: SessionUsageSummary, t: (key: string) => string, lo
   ].join("\n");
 }
 
-function UsageLine({ usage, style }: { usage: SessionUsageSummary; style?: React.CSSProperties }) {
+export function UsageLine({ usage, style }: { usage: SessionUsageSummary; style?: React.CSSProperties }) {
   const { locale, t } = useI18n();
   const cost = formatCostShort(usage.cost);
   return (
@@ -244,6 +244,11 @@ function AgentRow({
           <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 11 }} title={secondary}>
             {secondary}
           </span>
+          {!main && usage?.latestActivity && (
+            <span title={[usage.latestActivity.toolName, usage.latestActivity.preview, usage.latestActivity.output].filter(Boolean).join(" · ")} style={{ display: "block", marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: usage.latestActivity.isError ? "#dc2626" : "var(--text-muted)", fontFamily: usage.latestActivity.toolName ? "var(--font-mono)" : undefined, fontSize: 11 }}>
+              {[usage.latestActivity.toolName, usage.latestActivity.preview || usage.latestActivity.output].filter(Boolean).join(" · ")}
+            </span>
+          )}
           {hasUsage(usage) && <UsageLine usage={usage} style={{ marginTop: 3 }} />}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 6, color: main && !running ? "var(--text-dim)" : statusColor(status), fontSize: 11, whiteSpace: "nowrap" }}>
@@ -296,6 +301,8 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
       })
     : sortedSubagents;
   const runningCount = subagents.filter((session) => runningSessionIds.has(session.id)).length;
+  const completedCount = subagents.filter((session) => !runningSessionIds.has(session.id) && session.relation?.kind === "subagent" && session.relation.status === "completed").length;
+  const failedCount = subagents.filter((session) => !runningSessionIds.has(session.id) && session.relation?.kind === "subagent" && session.relation.status === "failed").length;
   const familyIds = useMemo(() => [rootSession.id, ...subagents.map((session) => session.id)], [rootSession.id, subagents]);
   const runningKey = familyIds.filter((id) => runningSessionIds.has(id)).join(",");
   const usage = useAgentUsage(familyIds, runningKey);
@@ -336,7 +343,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
       }}
     >
       <div>
-        <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ minHeight: 44, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--border)" }}>
           <strong style={{ fontSize: 12, fontWeight: 600 }}>{t("agentSwitcher.title")}</strong>
           <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
             {t("agentSwitcher.count", { count: subagents.length })}
@@ -355,6 +362,12 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
             )}
           </span>
         </div>
+        {(completedCount > 0 || failedCount > 0) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "6px 12px", borderBottom: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 11 }}>
+            {completedCount > 0 && <span>{t("agentSwitcher.completedCount", { count: completedCount })}</span>}
+            {failedCount > 0 && <span style={{ color: "#dc2626" }}>{t("agentSwitcher.failedCount", { count: failedCount })}</span>}
+          </div>
+        )}
         {subagents.length > 8 && (
           <div style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
             <input

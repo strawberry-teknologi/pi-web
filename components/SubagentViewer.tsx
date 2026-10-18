@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MessageView } from "./MessageView";
-import { StatusIcon, statusColor } from "./AgentSessionPanel";
+import { StatusIcon, statusColor, UsageLine, useAgentUsage } from "./AgentSessionPanel";
+import { SubagentActivityList } from "./SubagentActivityList";
+import { getSubagentActivities } from "@/lib/subagent-progress";
 import { buildToolResultsMap, EMPTY_TRANSCRIPT, mergeTailPage, prependOlderPage, type SubagentTranscript } from "./subagent-viewer-state";
 import { useI18n } from "@/hooks/useI18n";
 import type { SessionInfo } from "@/lib/types";
@@ -55,6 +57,10 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const usageIds = useMemo(() => [sessionId], [sessionId]);
+  const usage = useAgentUsage(usageIds, running ? sessionId : "", refreshKey)[sessionId];
+  const activities = useMemo(() => getSubagentActivities(messages, entryIds), [messages, entryIds]);
 
   // Session info on open, when the run starts or ends (the persisted status
   // takes over from the live flag), and on manual refresh: label, cwd, status.
@@ -171,10 +177,10 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
     const el = listRef.current;
     const anchor = prependAnchorRef.current;
     prependAnchorRef.current = null;
-    if (!el) return;
+    if (!el || !showTranscript) return;
     if (anchor !== null) el.scrollTop = el.scrollHeight - anchor;
     else if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, showTranscript]);
 
   const toolResults = useMemo(() => buildToolResultsMap(messages), [messages]);
   const relation = info?.relation?.kind === "subagent" ? info.relation : null;
@@ -247,39 +253,51 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
           </div>
         ) : (
           <>
-            {hasMore && (
-              <div style={{ display: "flex", justifyContent: "center", padding: "4px 0 10px" }}>
-                <button
-                  type="button"
-                  onClick={loadEarlier}
-                  disabled={loadingEarlier}
-                  style={{
-                    fontSize: 11, padding: "4px 12px", borderRadius: 6,
-                    border: "1px solid var(--border)", background: "var(--bg-panel)", color: "var(--text-muted)",
-                    cursor: loadingEarlier ? "default" : "pointer",
-                  }}
-                >
-                  {t("i18n.loadMore")}
-                </button>
+            {usage && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", padding: "6px 16px 12px", borderBottom: "1px solid var(--border)" }}>
+                {relation?.profile && <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{relation.profile}</span>}
+                <UsageLine usage={usage} />
+                <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("session.toolCalls")}: {usage.toolCalls.toLocaleString(locale)}</span>
               </div>
             )}
-            {messages.map((message, index) => (
-              <div key={entryIds[index] ?? index} style={{ padding: "2px 12px" }}>
-                <MessageView
-                  message={message}
-                  toolResults={toolResults}
-                  cwd={info?.cwd}
-                  onOpenFile={onOpenFile}
-                  sessionId={sessionId}
-                  entryId={entryIds[index]}
-                />
-              </div>
-            ))}
-            {messages.length === 0 && !error && (
-              <div style={{ padding: "24px 16px", color: "var(--text-dim)", fontSize: 12, textAlign: "center" }}>
-                {t("subagent.viewer.empty")}
-              </div>
-            )}
+            {error && <div role="alert" style={{ padding: "8px 16px", color: "#dc2626", fontSize: 12 }}>{t("subagent.viewer.error")}: {error}</div>}
+            <SubagentActivityList activities={activities} />
+            {running && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 16px 16px", color: "var(--text-dim)", fontSize: 11 }}><StatusIcon status="running" />{t("subagent.activity.waiting")}</div>}
+            <details open={showTranscript} onToggle={(event) => setShowTranscript(event.currentTarget.open)} style={{ borderTop: "1px solid var(--border)" }}>
+              <summary style={{ padding: "12px 16px", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>{t("subagent.viewer.transcript")}</summary>
+              {showTranscript && (
+                <>
+                  {hasMore && (
+                    <div style={{ display: "flex", justifyContent: "center", padding: "4px 0 10px" }}>
+                      <button
+                        type="button"
+                        onClick={loadEarlier}
+                        disabled={loadingEarlier}
+                        style={{
+                          fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                          border: "1px solid var(--border)", background: "var(--bg-panel)", color: "var(--text-muted)",
+                          cursor: loadingEarlier ? "default" : "pointer",
+                        }}
+                      >
+                        {t("i18n.loadMore")}
+                      </button>
+                    </div>
+                  )}
+                  {messages.map((message, index) => (
+                    <div key={entryIds[index] ?? index} style={{ padding: "2px 12px" }}>
+                      <MessageView
+                        message={message}
+                        toolResults={toolResults}
+                        cwd={info?.cwd}
+                        onOpenFile={onOpenFile}
+                        sessionId={sessionId}
+                        entryId={entryIds[index]}
+                      />
+                    </div>
+                  ))}
+                </>
+              )}
+            </details>
           </>
         )}
       </div>

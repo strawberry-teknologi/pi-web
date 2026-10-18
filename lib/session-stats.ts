@@ -1,4 +1,5 @@
 import type { AgentMessage, AgentUsage, SessionEntry, SessionMessage } from "./types";
+import type { SubagentActivity } from "./subagent-progress";
 
 export interface SessionFileStats {
   userMessages: number;
@@ -23,6 +24,7 @@ export interface SessionUsageSummary {
   toolCalls: number;
   /** Estimated active time across all entries, as the stats popover shows it. */
   totalActiveMs: number;
+  latestActivity?: SubagentActivity;
 }
 
 function emptyStats(): SessionFileStats {

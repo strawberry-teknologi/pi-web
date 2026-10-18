@@ -18,6 +18,7 @@ import { checkModelContext } from "./model-context.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
+import { checkSubagentProgress, createSubagentProgressFixtures } from "./subagent-progress.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -148,6 +149,7 @@ try {
   ]);
 
   const projectNavigation = createProjectNavigationFixtures({ agentDir, sessionDir, timestamp });
+  const subagentProgress = createSubagentProgressFixtures({ agentDir, sessionDir, project, timestamp, parentId: RICH, parentPath: join(sessionDir, `2026-08-23T00-00-00-000Z_${RICH}.jsonl`) });
 
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
@@ -189,7 +191,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND, CODE_BACKGROUND, projectNavigation.id].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND, CODE_BACKGROUND, projectNavigation.id, ...subagentProgress.children.map(child => child.id)].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -501,6 +503,7 @@ try {
     await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });
     await page.locator(".markdown-code-block pre").waitFor();
     await checkCodeBackground(page);
+    await checkSubagentProgress({ page, base, artifacts, width: viewport.width, fixture: subagentProgress });
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
     await context.tracing.stop();

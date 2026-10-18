@@ -84,6 +84,7 @@ test("answers each session's tokens, cost, tool calls and active time, leaving o
   assert.equal(stats["stats-main"].cost, 0.02);
   assert.equal(stats["stats-main"].toolCalls, 1);
   assert.equal(stats["stats-main"].totalActiveMs, 30_000);
+  assert.equal(stats["stats-main"].latestActivity?.toolName, "read");
   assert.equal(stats["stats-child"].tokens.total, 350);
 
   // A later run's entries show up in the next poll.
@@ -93,6 +94,46 @@ test("answers each session's tokens, cost, tool calls and active time, leaving o
   assert.equal(again.stats["stats-child"].tokens.total, 460);
   assert.equal(again.stats["stats-child"].toolCalls, 2);
   assert.equal(again.stats["stats-child"].totalActiveMs, 60_000);
+});
+
+test("progress follows a live session's leaf even when no entry is appended", async (t) => {
+  await scratchAgentDir(t);
+  const entries = [
+    ...exchange("base", null, 0, { input: 1, output: 1, cost: 0 }),
+    { type: "message", id: "left", parentId: "base-a", timestamp: at(40), message: { role: "assistant", content: [{ type: "text", text: "Left branch" }] } },
+    { type: "message", id: "right", parentId: "base-a", timestamp: at(50), message: { role: "assistant", content: [{ type: "text", text: "Right branch" }] } },
+  ];
+  let leafId = "left";
+  globalThis.__piSessions.set("stats-live", {
+    isAlive: () => true,
+    inner: { sessionManager: { getEntries: () => entries, getLeafId: () => leafId } },
+  });
+  const first = await (await post({ ids: ["stats-live"] })).json();
+  assert.equal(first.stats["stats-live"].latestActivity?.preview, "Left branch");
+  leafId = "right";
+  const second = await (await post({ ids: ["stats-live"] })).json();
+  assert.equal(second.stats["stats-live"].latestActivity?.preview, "Right branch");
+  assert.equal(second.stats["stats-live"].tokens.total, first.stats["stats-live"].tokens.total);
+});
+
+test("resume prompts, compaction and thinking-only replies preserve the last recorded activity", async (t) => {
+  await scratchAgentDir(t);
+  const entries = [{ type: "message", id: "work", parentId: null, timestamp: at(0), message: { role: "assistant", content: [{ type: "text", text: "Inspected viewer" }] } }];
+  let leafId = "work";
+  globalThis.__piSessions.set("stats-filtered", {
+    isAlive: () => true,
+    inner: { sessionManager: { getEntries: () => entries, getLeafId: () => leafId } },
+  });
+  for (const entry of [
+    { type: "message", id: "resume", message: { role: "user", content: "Continue" } },
+    { type: "compaction", id: "compact", summary: "Context summary", firstKeptEntryId: "work", tokensBefore: 100 },
+    { type: "message", id: "thinking", message: { role: "assistant", content: [{ type: "thinking", thinking: "Private reasoning" }] } },
+  ]) {
+    entries.push({ ...entry, parentId: leafId, timestamp: at(10) });
+    leafId = entry.id;
+    const { stats } = await (await post({ ids: ["stats-filtered"] })).json();
+    assert.equal(stats["stats-filtered"].latestActivity?.preview, "Inspected viewer", entry.id);
+  }
 });
 
 test("refuses malformed requests", async () => {

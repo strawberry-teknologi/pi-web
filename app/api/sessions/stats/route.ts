@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getRpcSession } from "@/lib/rpc-manager";
-import { openSessionManager, resolveSessionPath } from "@/lib/session-reader";
+import { buildSessionContext, openSessionManager, resolveSessionPath } from "@/lib/session-reader";
+import { getSubagentActivities } from "@/lib/subagent-progress";
 import { computeSessionStats, type SessionUsageSummary } from "@/lib/session-stats";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
@@ -23,6 +24,7 @@ type SessionManagerLike = ReturnType<typeof openSessionManager>;
 interface CachedSummary {
   entryCount: number;
   lastEntryId: string | undefined;
+  leafId: string | null;
   summary: SessionUsageSummary;
 }
 
@@ -44,17 +46,28 @@ async function readSummary(id: string): Promise<SessionUsageSummary | null> {
   }
   const entries = sm.getEntries();
   const lastEntryId = (entries[entries.length - 1] as { id?: string } | undefined)?.id;
+  const leafId = sm.getLeafId();
   const cached = summaries.get(sm);
-  if (cached && cached.entryCount === entries.length && cached.lastEntryId === lastEntryId) return cached.summary;
+  if (cached && cached.entryCount === entries.length && cached.lastEntryId === lastEntryId && cached.leafId === leafId) return cached.summary;
 
+  let tail = 1;
+  let latestActivity: SessionUsageSummary["latestActivity"];
+  // Resume prompts, compactions and thinking-only replies are not activity.
+  while (true) {
+    const context = buildSessionContext(entries as unknown as SessionEntry[], leafId, { tail, deferThinking: true, deferToolResultImages: true });
+    latestActivity = getSubagentActivities(context.messages, context.entryIds).at(-1);
+    if (latestActivity || !context.hasMore || tail >= entries.length) break;
+    tail = Math.min(tail * 2, entries.length);
+  }
   const stats = computeSessionStats(entries as unknown as SessionEntry[]);
   const summary: SessionUsageSummary = {
     tokens: stats.tokens,
     cost: stats.cost,
     toolCalls: stats.toolCalls,
     totalActiveMs: computeSessionTotalActiveMs(entries),
+    latestActivity,
   };
-  summaries.set(sm, { entryCount: entries.length, lastEntryId, summary });
+  summaries.set(sm, { entryCount: entries.length, lastEntryId, leafId, summary });
   return summary;
 }
 
