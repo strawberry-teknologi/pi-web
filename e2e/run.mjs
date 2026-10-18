@@ -489,12 +489,8 @@ try {
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
       await page.setViewportSize(viewport);
-      // Returning from the mobile breakpoint restores the desktop sidebar preference in an effect, so wait for the toggle to settle.
-      const hideSidebar = page.getByRole("button", { name: "Hide sidebar", exact: true });
-      const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
-      await hideSidebar.or(showSidebar).waitFor({ state: "visible" });
-      if (await showSidebar.isVisible()) await showSidebar.click();
-      await hideSidebar.waitFor({ state: "visible" });
+      // Desktop restores its open sidebar; clicking the transient Show toggle can close it again.
+      await page.getByRole("button", { name: "Hide sidebar", exact: true }).waitFor({ state: "visible" });
       // The files sit below the sessions on a desktop; Settings › General ›
       // File browser brings the tabs back, and goes back.
       await checkFilesPlacement(page);
