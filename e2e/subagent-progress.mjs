@@ -42,7 +42,7 @@ export async function checkSubagentProgress({ page, base, artifacts, width, fixt
       await more.waitFor({ state: "visible" });
       if (await more.getAttribute("aria-expanded") !== "true") await more.click();
     }
-    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await page.getByRole("button", { name: "Agents: 1 running", exact: true }).click();
     const panel = page.getByRole("listbox", { name: "Agents" });
     const readRow = panel.getByRole("option").filter({ hasText: read.description });
     await readRow.getByText(read.latestUpdate ?? "read · components/SubagentViewer.tsx", { exact: true }).waitFor();
