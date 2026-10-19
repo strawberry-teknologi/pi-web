@@ -1,0 +1,15 @@
+services:
+  pi-web-ryzen-proxy:
+    image: caddy:2.11.6
+    scale: 1
+    x-machines: thinkpad-ryzen
+    command: ["caddy", "reverse-proxy", "--from", ":8080", "--to", "10.210.0.1:30141"]
+    environment:
+      UNCLOUD_CI_REPOSITORY: strawberry-teknologi/pi-web
+      UNCLOUD_CI_STACK: deploy/thinkpad-ryzen
+    x-caddy: |
+      http://pi-web-ryzen.tpk {
+        @outside_vpn not remote_ip 100.64.0.0/10 127.0.0.1/8 ::1
+        respond @outside_vpn "Forbidden" 403
+        reverse_proxy {{upstreams 8080}}
+      }

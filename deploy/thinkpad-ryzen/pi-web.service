@@ -1,0 +1,23 @@
+[Unit]
+Description=Pi Web (ThinkPad Ryzen)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ndjoe
+Group=ndjoe
+WorkingDirectory=/home/ndjoe/codes/pi-web
+Environment=HOME=/home/ndjoe
+Environment=PATH=/home/ndjoe/.local/bin:/home/ndjoe/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+Environment=PI_WEB_ALLOWED_HOSTS=pi-web-ryzen.tpk
+EnvironmentFile=/home/ndjoe/.config/pi-web/environment
+ExecStart=/usr/bin/node /home/ndjoe/codes/pi-web/bin/pi-web.js --hostname 10.210.0.1 --port 30141
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
