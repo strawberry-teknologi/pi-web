@@ -207,7 +207,8 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const { missing } = await deleteSessions([id]);
+    const { missing, running } = await deleteSessions([id]);
+    if (running.length > 0) return NextResponse.json({ error: 'Stop the subagent from its parent before deleting this session.' }, { status: 409 });
     if (missing.length > 0) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

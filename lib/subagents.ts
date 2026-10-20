@@ -8,6 +8,8 @@ import { parseNpmSource } from "./npm-source";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
+import { readNativeSubagentRecord, readNativeSubagentRun } from './native-subagent-records';
+import { nativeSubagentStatus, rememberNativeSubagent } from './native-subagents';
 import { PRESET_READ_ONLY } from "./tool-presets";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
@@ -962,6 +964,12 @@ export function subagentExtensionLoaderOptions(resources: { loadExtensions: bool
 }
 
 export function readSubagentRun(entries: readonly SessionEntry[], sessionId: string, sessionPath: string): SubagentRunInfo | null {
+  const native = readNativeSubagentRun(entries, sessionId, sessionPath);
+  const record = readNativeSubagentRecord(entries, sessionId);
+  if (native && record) {
+    rememberNativeSubagent(record, sessionPath);
+    return { ...native, status: nativeSubagentStatus(record) };
+  }
   const data = subagentMetadataData(entries);
   if (!data) return null;
   const lifecycleEntry = [...entries].reverse().find((entry) =>

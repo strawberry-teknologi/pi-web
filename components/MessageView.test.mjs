@@ -226,6 +226,33 @@ test("keeps the input JSON for a write with another argument, an empty file or s
   }
 });
 
+test("previews parallel and chained subagents by agent name, not object coercion", () => {
+  for (const mode of ["tasks", "chain"]) {
+    const html = renderMessage({
+      role: "assistant",
+      content: [{
+        type: "toolCall", toolCallId: `native-${mode}`, toolName: "subagent",
+        input: { [mode]: [{ agent: "deep", task: "Check the builder" }, { agent: "general", task: "Check the API" }] },
+      }],
+    });
+    assert.match(textOf(html), /deep, general/);
+    assert.doesNotMatch(html, /\[object Object\]/);
+    assert.doesNotMatch(html, /Check the builder|Check the API/);
+  }
+});
+
+test("subagent previews tolerate incomplete task lists", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{
+      type: "toolCall", toolCallId: "native-incomplete", toolName: "subagent",
+      input: { tasks: [null, {}, { agent: 3 }, { agent: "deep", task: "Check" }] },
+    }],
+  });
+  assert.match(textOf(html), /subagentdeep/);
+  assert.doesNotMatch(html, /\[object Object\]/);
+});
+
 test("renders subagents as standard tool calls with only an extra side-panel button", () => {
   const block = {
     type: "toolCall",

@@ -60,7 +60,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
   const [showTranscript, setShowTranscript] = useState(false);
   const usageIds = useMemo(() => [sessionId], [sessionId]);
   const usage = useAgentUsage(usageIds, running ? sessionId : "", refreshKey)[sessionId];
-  const activities = useMemo(() => getSubagentActivities(messages, entryIds), [messages, entryIds]);
+  const activities = useMemo(() => getSubagentActivities(messages, entryIds, true), [messages, entryIds]);
 
   // Session info on open, when the run starts or ends (the persisted status
   // takes over from the live flag), and on manual refresh: label, cwd, status.

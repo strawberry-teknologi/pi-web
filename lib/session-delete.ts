@@ -27,6 +27,8 @@ import {
 } from "./session-reader";
 import { sessionPathKey } from "./session-path";
 import { forgetSessionUiState } from "./session-ui-state";
+import { getProtectedNativeSubagentIds } from './native-subagents';
+import { NATIVE_SUBAGENT_TYPE } from './native-subagent-records';
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import type { SessionEntry } from "./types";
 
@@ -115,7 +117,7 @@ export async function deleteSessions(
 
   // Each named session with the subagents below it, children before their
   // parent: wrappers are shut down in this order.
-  const runningIds = options.keepRunning ? new Set(getRunningRpcSessionIds()) : new Set<string>();
+  const runningIds = new Set([...getProtectedNativeSubagentIds(), ...(options.keepRunning ? getRunningRpcSessionIds() : [])]);
   const deletedSessionIds = new Set<string>();
   const running: string[] = [];
   for (const id of targets.keys()) {
@@ -204,7 +206,7 @@ export async function deleteSessions(
                 }
                 if (
                   entry.type !== "custom"
-                  || entry.customType !== SUBAGENT_META_TYPE
+                  || (entry.customType !== SUBAGENT_META_TYPE && entry.customType !== NATIVE_SUBAGENT_TYPE)
                   || typeof entry.data !== "object"
                   || entry.data === null
                   || Array.isArray(entry.data)
@@ -215,7 +217,7 @@ export async function deleteSessions(
                   parentSessionPath,
                 };
                 lines[index] = JSON.stringify(entry);
-                break;
+                if (entry.customType === SUBAGENT_META_TYPE) break;
               }
             }
             writeFileSync(childPath, lines.join("\n"));

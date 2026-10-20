@@ -401,7 +401,10 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
               selected={session.id === selectedSessionId}
               running={runningSessionIds.has(session.id)}
               usage={usage[session.id]}
-              onSelect={() => onSelectSession(session)}
+              onSelect={() => {
+                const relation = session.relation?.kind === 'subagent' ? session.relation : null;
+                onToggleSubagentTab(session.id, relation?.description || relation?.profile || sessionTitle(session));
+              }}
               tabShown={openSubagentTabIds.has(session.id)}
               onToggleTab={() => {
                 const relation = session.relation?.kind === "subagent" ? session.relation : null;

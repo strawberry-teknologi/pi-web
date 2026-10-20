@@ -82,7 +82,7 @@ export function forkSessionBranch(
   const branch = manager.getBranch(leafId);
   // A copy carrying a subagent's metadata would be read as that subagent and
   // folded, out of sight, into its parent's family.
-  if (readSubagentRun(branch as unknown as SessionEntry[], "", sourcePath)) {
+  if (readSubagentRun(branch as unknown as SessionEntry[], manager.getSessionId(), sourcePath)) {
     throw new SessionForkError("subagent", "A subagent session cannot be forked");
   }
   if (!branch.some((entry) => entry.type === "message")) {

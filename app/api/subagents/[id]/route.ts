@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { abortSubagent, getSubagentRun, steerSubagent } from "@/lib/rpc-manager";
+import { abortSubagent, getSubagentRun } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,7 @@ export async function POST(
       if (typeof body.message !== "string" || !body.message.trim()) {
         return NextResponse.json({ error: "message required" }, { status: 400 });
       }
-      await steerSubagent(id, body.message);
+      return NextResponse.json({ error: 'Live steering is not supported by the subagent extension. Resume it from the parent instead.' }, { status: 409 });
     } else if (body.action === "abort") {
       await abortSubagent(id);
     } else {

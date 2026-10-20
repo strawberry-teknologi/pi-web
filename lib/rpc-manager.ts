@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createEventBus, createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -16,7 +16,7 @@ import {
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
-import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath, openSessionManager } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -31,21 +31,15 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { abortNativeSubagent, createNativeSubagentBridge, getRunningNativeSubagentIds } from './native-subagents';
+import { readNativeSubagentRecord } from './native-subagent-records';
 import {
-  createSubagentExtension,
-  preferPiWebSubagentExtension,
-} from "./subagent-extension";
-import {
-  listSubagentProfiles,
   hasSubagentResourceSnapshot,
   readSubagentRun,
   readSubagentSessionResources,
   subagentExtensionLoaderOptions,
   subagentToolOptions,
-  SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
-import { createSubagentController } from "./subagent-runtime";
-import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
@@ -128,6 +122,7 @@ type ExtensionCommandContextActionsLike = {
 
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
+  nativeBridge?: { dispose(): void };
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
@@ -261,10 +256,8 @@ class PlainTextTheme extends Theme {
 const PLAIN_TEXT_THEME = new PlainTextTheme();
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 
-// Tools that belong to the session, not to a branch of it: the ones that reach other tools,
-// and pi-web's subagent tools, which the built-in subagent setting switches on for the whole
-// session. Navigation keeps them although the target branch was recorded without them.
-const SESSION_TOOL_NAMES = new Set<string>(["codemode", "tool_search", ...SUBAGENT_CONTROL_TOOL_NAMES]);
+// Keep discovery and delegation active when navigating to a branch recorded before they loaded.
+const SESSION_TOOL_NAMES = new Set<string>(['codemode', 'tool_search', 'subagent']);
 
 /**
  * The active tools for a coding tool selection. The selection replaces only the coding
@@ -326,6 +319,7 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
+  private readonly nativeBridge?: { dispose(): void };
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
@@ -354,6 +348,7 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
+    this.nativeBridge = options.nativeBridge;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
@@ -527,37 +522,6 @@ export class AgentSessionWrapper {
 
   async waitUntilReady(): Promise<void> {
     await this.waitForExtensionsBound();
-  }
-
-  /**
-   * A subagent run prompts the SDK session directly (`lib/subagent-runtime.ts`), past `send()`:
-   * connect the session's MCP servers first, as a sent prompt does, once session_start has bound
-   * the host. Stop (`abort`) ends the wait as it ends a sent prompt's, and so does `signal`.
-   * Resolves whether the run may start.
-   */
-  async prepareMcpForRun(signal: AbortSignal): Promise<boolean> {
-    const mcpHost = this.mcpHost;
-    if (!mcpHost || this.inner.isStreaming) return !signal.aborted;
-    const controller = new AbortController();
-    const stop = () => controller.abort();
-    if (signal.aborted) stop();
-    signal.addEventListener("abort", stop, { once: true });
-    // Registered before the binding is awaited, so a Stop meanwhile already ends it.
-    const waited = (async () => {
-      await this.waitForExtensionsBound();
-      if (!controller.signal.aborted) await mcpHost.prepareForPrompt(controller.signal);
-    })().catch((error: unknown) => {
-      console.error("[pi-web] MCP servers could not be prepared:", error instanceof Error ? error.message : error);
-    });
-    const wait = { controller, done: waited };
-    this.mcpPromptWait = wait;
-    try {
-      await waited;
-    } finally {
-      signal.removeEventListener("abort", stop);
-      if (this.mcpPromptWait === wait) this.mcpPromptWait = null;
-    }
-    return !controller.signal.aborted;
   }
 
   private ensureExtensionsBound(): Promise<void> {
@@ -1411,6 +1375,7 @@ export class AgentSessionWrapper {
       try {
         this.inner.dispose();
       } finally {
+        this.nativeBridge?.dispose();
         this.onDestroyCallback?.();
         this.resolveDisposed();
       }
@@ -2130,37 +2095,13 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   if (!wrapper.isChatOnly()) wrapper.beginExtensionBinding();
 }
 
-const SUBAGENT_CONTROLLER = createSubagentController({
-  getSession: (sessionId) => getRegistry().get(sessionId),
-  registerSession: (inner, options) => {
-    const wrapper = new AgentSessionWrapper(inner, {
-      ...(options?.exactSystemPrompt !== undefined
-        ? { exactSystemPrompt: options.exactSystemPrompt }
-        : {}),
-      chatOnly: options?.chatOnly,
-      suppressCompletionNotifications: true,
-      ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
-    });
-    registerRpcWrapper(wrapper);
-    return wrapper;
-  },
-  reopenSession: async (sessionId, sessionFile) =>
-    (await startRpcSession(sessionId, sessionFile, undefined)).session,
-  resolveSessionPath,
-  invalidateSessionList: invalidateSessionListCache,
-  isBuiltInSubagentsEnabled,
-});
-
-export function getSubagentRun(sessionId: string) {
-  return SUBAGENT_CONTROLLER.get(sessionId);
-}
-
-export function steerSubagent(sessionId: string, message: string) {
-  return SUBAGENT_CONTROLLER.steer(sessionId, message);
+export async function getSubagentRun(sessionId: string) {
+  const file = await resolveSessionPath(sessionId);
+  return file ? readSubagentRun(openSessionManager(file).getEntries() as unknown as SessionEntry[], sessionId, file) : null;
 }
 
 export function abortSubagent(sessionId: string) {
-  return SUBAGENT_CONTROLLER.abort(sessionId);
+  return abortNativeSubagent(sessionId);
 }
 
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
@@ -2410,7 +2351,7 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
 }
 
 export function getRunningRpcSessionIds(): string[] {
-  const ids = new Set<string>();
+  const ids = new Set<string>(getRunningNativeSubagentIds());
   for (const [sessionId, session] of getRegistry()) {
     if (session.isRunning()) ids.add(session.sessionId || sessionId);
   }
@@ -2486,6 +2427,9 @@ export async function startRpcSession(
   }
   const sessionCwd = sessionManager.getCwd();
   const sessionEntries = sessionManager.getEntries() as unknown as SessionEntry[];
+  if (readNativeSubagentRecord(sessionEntries, sessionManager.getSessionId())) {
+    throw new Error('This subagent is owned by its extension. Use the parent subagent tool to resume it, or open its read-only transcript.');
+  }
   const hasPersistedSubagentSnapshot = sessionFile && hasSubagentResourceSnapshot(sessionEntries);
   const subagentResources = sessionFile
     ? readSubagentSessionResources(sessionEntries)
@@ -2576,6 +2520,9 @@ export async function startRpcSession(
         : []),
       ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
     ];
+    const eventBus = createEventBus();
+    let parentId = () => sessionManager.getSessionId();
+    const nativeBridge = createNativeSubagentBridge(eventBus, () => parentId(), invalidateSessionListCache);
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -2599,6 +2546,7 @@ export async function startRpcSession(
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
+            eventBus,
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
@@ -2606,13 +2554,8 @@ export async function startRpcSession(
                 cwd: sessionCwd,
                 settings: settingsManager,
               }),
-              createSubagentExtension(
-                SUBAGENT_CONTROLLER.extensionRuntime,
-                () => listSubagentProfiles(sessionCwd),
-                isBuiltInSubagentsEnabled,
-              ),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            extensionsOverride: (base) => preferUserBashExtension(base),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
@@ -2730,7 +2673,9 @@ export async function startRpcSession(
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const mcpHost = builtins?.mcpHost ?? subagentMcp?.mcpHost;
+    parentId = () => inner.sessionId;
     const wrapper = new AgentSessionWrapper(inner, {
+      nativeBridge,
       exactSystemPrompt,
       chatOnly,
       onAgentRunComplete: (completedSessionId, sessionName) => {

@@ -21,10 +21,42 @@ test("the timeline shows the eight newest activities first and keeps error outpu
   assert.match(html, /dateTime="2026-10-01T12:00:00.000Z"/);
 });
 
+test("each activity has its own initially collapsed disclosure with complete entry text", () => {
+  const html = render([
+    {
+      id: "tool:long", toolName: "bash", preview: "Long command", output: "Short result", isError: false,
+      details: { input: '{\n  "command": "echo full input"\n}', output: "First line\n  Indented line\nFull output tail" },
+    },
+    {
+      id: "assistant", preview: "Short update", isError: false,
+      details: { output: "Full assistant update\nFinal conclusion" },
+    },
+  ]);
+  assert.equal((html.match(/<details[ >]/g) ?? []).length, 2);
+  assert.doesNotMatch(html, /<details[^>]*\bopen(?:=|[ >])/);
+  const summaries = [...html.matchAll(/<summary[^>]*>([\s\S]*?)<\/summary>/g)].map((match) => match[1]);
+  assert.match(summaries[0], /Short update/);
+  assert.match(summaries[1], /bash/);
+  assert.doesNotMatch(summaries.join(""), /Full output tail|Final conclusion|full input/);
+  assert.match(html, /echo full input/);
+  assert.match(html, /First line\n  Indented line\nFull output tail/);
+  assert.match(html, /Full assistant update\nFinal conclusion/);
+  assert.match(html, /white-space:pre-wrap/);
+});
+
+test("pending calls and empty results do not repeat the preview as output", () => {
+  for (const details of [{ input: '{ "path": "README.md" }' }, { input: '{ "path": "README.md" }', output: "" }]) {
+    const html = render([{ id: "read", toolName: "read", preview: "README.md", isError: false, details }]);
+    assert.equal((html.match(/<pre[ >]/g) ?? []).length, 1);
+  }
+});
+
 test("tool output is text, never executable markup", () => {
-  const html = render([{ id: "unsafe", toolName: "bash", preview: "echo output", output: "<script>alert(1)</script>", isError: true }]);
+  const html = render([{ id: "unsafe", toolName: "bash", preview: "echo output", isError: true, details: { input: '<img src=x onerror="alert(1)">', output: "<script>alert(1)</script>" } }]);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
 });
 
 test("a new subagent without activity has an honest empty state", () => {

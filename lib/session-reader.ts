@@ -15,6 +15,8 @@ import { skillExpansionToCommand } from "./slash-display";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
+import { NATIVE_SUBAGENT_TYPE, readNativeSubagentRecord, nativeSubagentRun, type NativeSubagentRecord } from './native-subagent-records';
+import { nativeSubagentStatus, rememberNativeSubagent } from './native-subagents';
 import { checkSessionMembership, listSessionsIncremental, scanSessionFileInfo, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
@@ -144,7 +146,7 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
     readBoundedLines(filePath, SESSION_RELATION_MAX_BYTES, SESSION_RELATION_MAX_LINES).slice(1),
   );
   const isSubagent = prefixEntries.some((entry) => (
-    entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE
+    entry.type === "custom" && (entry.customType === SUBAGENT_META_TYPE || entry.customType === NATIVE_SUBAGENT_TYPE)
   ));
   if (!isSubagent) return prefixEntries;
 
@@ -195,6 +197,7 @@ type ScannedSubagent = NonNullable<ReturnType<typeof readSubagentRun>>;
  * loop) though only the session that just ran had changed.
  */
 const scannedSubagentRuns = new WeakMap<ScannedSessionInfo, ScannedSubagent | null>();
+const scannedNativeRecords = new WeakMap<ScannedSessionInfo, NativeSubagentRecord>();
 
 function resolveScannedSessionRelation(
   scanned: ScannedSessionInfo,
@@ -203,12 +206,23 @@ function resolveScannedSessionRelation(
   const originSessionId = scanned.parentSessionPath
     ? pathToId.get(sessionPathKey(scanned.parentSessionPath))
     : undefined;
+  if (scanned.nativeSubagent?.sessionId === scanned.id) {
+    const record = scanned.nativeSubagent;
+    rememberNativeSubagent(record, scanned.path);
+    return { originSessionId, subagent: { ...nativeSubagentRun(record, scanned.path), status: nativeSubagentStatus(record) } };
+  }
   if (!scanned.parentSessionPath) return { originSessionId, subagent: null };
 
   const cached = scannedSubagentRuns.get(scanned);
-  if (cached !== undefined) return { originSessionId, subagent: cached };
+  if (cached !== undefined) {
+    const record = scannedNativeRecords.get(scanned);
+    return { originSessionId, subagent: cached && record ? { ...cached, status: nativeSubagentStatus(record) } : cached };
+  }
   try {
-    const subagent = readSubagentRun(readSessionRelationEntries(scanned.path), scanned.id, scanned.path);
+    const entries = readSessionRelationEntries(scanned.path);
+    const record = readNativeSubagentRecord(entries, scanned.id);
+    if (record) scannedNativeRecords.set(scanned, record);
+    const subagent = readSubagentRun(entries, scanned.id, scanned.path);
     scannedSubagentRuns.set(scanned, subagent);
     return { originSessionId, subagent };
   } catch {
@@ -267,7 +281,30 @@ function mapScannedSession(
 async function buildSessionList(scanned: ScannedSessionInfo[]): Promise<SessionInfo[]> {
   const pathToId = new Map<string, string>();
   for (const session of scanned) pathToId.set(sessionPathKey(session.path), session.id);
-  return attachSessionProjectInfo(scanned.map((session) => mapScannedSession(session, pathToId)));
+  const mapped = scanned.map((session) => mapScannedSession(session, pathToId));
+  const byId = new Map(mapped.map(session => [session.id,session]));
+  const inferred = new Map<string, SessionInfo['relation'] | null>();
+  for (const parent of scanned) for (const ref of parent.subagentReferences ?? []) {
+    if (ref.sessionId === parent.id || !byId.has(ref.sessionId) || byId.get(ref.sessionId)?.relation) continue;
+    const existing = inferred.get(ref.sessionId);
+    inferred.set(ref.sessionId, existing === null || (existing?.kind === 'subagent' && existing.parentSessionId !== parent.id)
+      ? null : {kind:'subagent',parentSessionId:parent.id,profile:ref.profile,description:ref.description,status:ref.status});
+  }
+  for (const session of mapped) {
+    const relation = inferred.get(session.id);
+    if (!relation || relation.kind !== 'subagent') continue;
+    const visited = new Set([session.id]);
+    let parent: string | undefined = relation.parentSessionId;
+    while (parent && !visited.has(parent)) {
+      visited.add(parent);
+      const next: SessionInfo['relation'] | null = byId.get(parent)?.relation ?? inferred.get(parent) ?? null;
+      parent = next?.kind === 'subagent' ? next.parentSessionId : undefined;
+    }
+    if (parent) continue;
+    session.relation = relation;
+    session.parentSessionId = relation.parentSessionId;
+  }
+  return attachSessionProjectInfo(mapped);
 }
 
 /**

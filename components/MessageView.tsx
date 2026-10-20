@@ -19,6 +19,7 @@ import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
+import { nativeSubagentLinks } from '@/lib/native-subagent-records';
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
@@ -1210,6 +1211,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   const isError = (result?.isError ?? false)
     || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+  const nativeLinks = block.toolName === 'subagent' ? nativeSubagentLinks(result?.details) : [];
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
 
   return (
@@ -1282,6 +1284,15 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
         )}
       </div>
 
+      {nativeLinks.length > 0 && onOpenSubagent && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 10px 8px' }}>
+          {nativeLinks.map(link => (
+            <button key={link.sessionId} type="button" onClick={() => onOpenSubagent(link.sessionId, link.label)} title={t('subagent.openTab')} aria-label={`${link.label}: ${t('subagent.openTab')}`} style={{ maxWidth: '100%', padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 5, background: 'var(--bg-panel)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {link.label}
+            </button>
+          ))}
+        </div>
+      )}
       {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
       {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
         <pre
@@ -2070,6 +2081,13 @@ function getToolPreview(block: ToolCallContent): string {
   if (!input || typeof input !== "object") return "";
   const keys = Object.keys(input);
   if (keys.length === 0) return "";
+
+  if (block.toolName === "subagent") {
+    const tasks = input.tasks ?? input.chain;
+    if (Array.isArray(tasks)) {
+      return tasks.map((task) => task && typeof task.agent === "string" ? task.agent : "").filter(Boolean).join(", ").slice(0, 120);
+    }
+  }
 
   // Common tool input patterns
   if ("command" in input) return String(input.command).slice(0, 120);

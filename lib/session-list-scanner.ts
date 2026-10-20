@@ -18,6 +18,7 @@ import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { nativeSubagentRecord, NATIVE_SUBAGENT_TYPE, subagentResultReferences, isRecord as isNativeRecord, type NativeSubagentRecord, type SubagentReference } from './native-subagent-records';
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -29,6 +30,8 @@ export interface ScannedSessionInfo {
 	messageCount: number;
 	firstMessage: string;
 	parentSessionPath?: string;
+	subagentReferences?: SubagentReference[];
+	nativeSubagent?: NativeSubagentRecord;
 	/** True when only header/stat metadata was available for this listing. */
 	detailsPending?: boolean;
 }
@@ -73,7 +76,7 @@ function isRecord(value: unknown): value is RawEntry {
 
 // Bump on any change to what foldEntry() counts: a resumed scan adds to totals
 // counted under the rules its prefix was scanned with.
-const INDEX_FORMAT_VERSION = 1;
+const INDEX_FORMAT_VERSION = 2;
 /** A trailing throttle: a run's rescans rewrite the index once per window. */
 const INDEX_PERSIST_DELAY_MS = 5_000;
 const RESUME_SAMPLE_BYTES = 512;
@@ -220,6 +223,8 @@ interface ScanTotals {
 	messageCount: number;
 	firstMessage: string;
 	lastActivityTime?: number;
+	subagentReferences?: SubagentReference[];
+	nativeSubagent?: NativeSubagentRecord;
 }
 
 function readHeader(entry: RawEntry, head: Buffer | undefined): SessionHeader {
@@ -238,6 +243,10 @@ function readHeader(entry: RawEntry, head: Buffer | undefined): SessionHeader {
 // Uses the SDK's buildSessionInfo() semantics for displayed metadata. A change
 // to these rules must bump INDEX_FORMAT_VERSION (resumed totals keep the old ones).
 function foldEntry(totals: ScanTotals, entry: RawEntry): void {
+	if (entry.type === 'custom' && entry.customType === NATIVE_SUBAGENT_TYPE) {
+		const native = nativeSubagentRecord(entry.data);
+		if (native) totals.nativeSubagent = native;
+	}
 	if (entry.type === "session_info") {
 		totals.name =
 			typeof entry.name === "string" && entry.name.trim()
@@ -245,6 +254,12 @@ function foldEntry(totals: ScanTotals, entry: RawEntry): void {
 				: undefined;
 	}
 	if (entry.type !== "message") return;
+	const references = subagentResultReferences(entry.message, typeof entry.timestamp === 'string' ? entry.timestamp : '');
+	if (references.length) {
+		const byId = new Map(totals.subagentReferences?.map(ref => [ref.sessionId,ref]));
+		for (const ref of references) byId.set(ref.sessionId,ref);
+		totals.subagentReferences = [...byId.values()];
+	}
 	totals.messageCount++;
 
 	const activityTime = activityTimeOf(entry);
@@ -401,6 +416,8 @@ async function scanSessionFile(
 			totals.messageCount = info.messageCount;
 			totals.firstMessage = resume.hasFirstMessage ? info.firstMessage : "";
 			totals.lastActivityTime = resume.lastActivityTime;
+			totals.subagentReferences = info.subagentReferences;
+			totals.nativeSubagent = info.nativeSubagent;
 		}
 
 		let restCounted = false;
@@ -447,6 +464,8 @@ async function scanSessionFile(
 				modified,
 				messageCount: totals.messageCount,
 				firstMessage: totals.firstMessage || "(no messages)",
+				...(totals.subagentReferences ? {subagentReferences:totals.subagentReferences}:{}),
+				...(totals.nativeSubagent?.sessionId === id ? {nativeSubagent:totals.nativeSubagent}:{}),
 			},
 			// An inode of 0 (no stable one on this filesystem) never resumes.
 			resume: head && headerEnd > 0 && !restCounted && stats.ino > 0
@@ -577,6 +596,8 @@ function loadPersistedIndex(): void {
 					cwd: info.cwd,
 					name: info.name,
 					parentSessionPath: info.parentSessionPath,
+					...(nativeSubagentRecord(info.nativeSubagent)?.sessionId === info.id ? {nativeSubagent:nativeSubagentRecord(info.nativeSubagent)!}:{}),
+					...(Array.isArray(info.subagentReferences) ? {subagentReferences:info.subagentReferences.filter((ref): ref is SubagentReference => isNativeRecord(ref) && typeof ref.sessionId === 'string' && typeof ref.profile === 'string' && typeof ref.description === 'string' && ['completed','failed','aborted','interrupted'].includes(String(ref.status)) && typeof ref.parentToolCallId === 'string' && typeof ref.createdAt === 'string')} : {}),
 					firstMessage: info.firstMessage,
 					messageCount: info.messageCount,
 					created,
@@ -694,7 +715,11 @@ export async function listSessionsIncremental(
 
 	await runPool(deferred, async ({ filePath, fp, resultIndex }) => {
 		const summary = await deferredSessionInfo(filePath, fp);
-		if (summary) results[resultIndex] = summary;
+		if (summary) {
+			summary.subagentReferences = index.get(filePath)?.info.subagentReferences;
+			summary.nativeSubagent = index.get(filePath)?.info.nativeSubagent;
+			results[resultIndex] = summary;
+		}
 		else index.delete(filePath);
 	});
 

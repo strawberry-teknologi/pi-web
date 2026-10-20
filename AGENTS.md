@@ -90,7 +90,7 @@ app/api/
   skills/content/route.ts          GET one loaded skill's bounded Markdown source, or ?document= a Markdown file in its folder
   skills/install/route.ts          POST install skills via npx skills add
   skills/search/route.ts           POST skills.sh search
-  subagents/settings/route.ts      GET/PUT built-in subagent switch and maxConcurrent
+  subagents/settings/route.ts      GET installed subagent tool status (no runtime creation); PUT retired (410)
   web-auth/route.ts                GET status | POST login | DELETE logout (browser password)
   provider-usage/query/route.ts    POST provider usage quotas
   push/config/route.ts             GET VAPID public key
@@ -128,7 +128,10 @@ lib/
   enabled-models.ts         pure minimal-edit engine for the enabledModels pattern list
   enabled-models-runtime.ts SDK adapter for enabledModels: pattern resolution, provider kinds, settings IO
   model-context.ts          client-safe: managed models' contextWindow overrides in the models.json draft, the Save check
-  subagent-settings.ts      read/write ~/.pi/agent/agents/settings.json
+  subagent-settings.ts      legacy built-in profile settings helpers; never enables a runtime
+  native-subagent-records.ts client-safe native extension lifecycle/result validation and child links
+  native-subagents.ts      event-bus lifecycle bridge, owned stop and subprocess liveness
+  native-subagent-profiles.ts extension-compatible profile discovery and supported-field writes
   file-access.ts            allowed file roots for /api/files and worktrees
   file-upload-client.ts     browser upload to /api/files ?type=upload, shared by the explorer and chat drops
   linked-directory.ts       directory links leading outside the allowed roots + the allow-link check
@@ -203,7 +206,7 @@ components/
   ModelContextWindow.tsx   a managed model row's context-window field (blank: no override)
   OAuthPastePanel.tsx      paste box for a sign-in's redirected address or code (Models, MCP)
   ProjectTrustDialog.tsx   trust confirmation listing the project's MCP servers
-  AgentsConfig.tsx         built-in subagent toggle + agent profile editor
+  AgentsConfig.tsx         installed subagent status + extension-compatible profile editor
   SubagentViewer.tsx       read-only right-panel tab of a subagent's transcript (polls the context route)
   PluginsConfig.tsx        Settings › Plugins: installed package plugins
   SkillsConfig.tsx         Settings › Skills: loaded, search, install
@@ -252,7 +255,7 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read every
 - [models.md](docs/agents/models.md): default model and reasoning level, providers registered at session_start, mid-run reasoning changes, remote provider catalogs, `enabledModels` scoping and minimal edits, managed models' context-window overrides, provider auth listing and credentials, the extension-loaded runtime those routes share. Files: `app/api/models/**`, `app/api/models-config/**`, `app/api/auth/**`, `lib/model-runtime.ts`, `lib/default-preferences.ts`, `lib/model-scope.ts`, `lib/enabled-models*.ts`, `lib/model-context.ts`, `lib/model-catalog-refresh.ts`, `lib/deferred-provider-models.ts`, `lib/provider-listing*.ts`, `components/ModelsConfig.tsx`, `components/EnabledModelsSection.tsx`, `components/ModelContextWindow.tsx`, `components/ModelSelector.tsx`, `components/SelectorRow.tsx`.
 - [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, the source view's languages by extension, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`.
 - [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
-- [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent viewer tab. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SubagentViewer.tsx`, `components/subagent-viewer-state.ts`.
+- [subagents.md](docs/agents/subagents.md): native `subagent` extension execution, generic parent-linked lifecycle and stop, exact-handle recovery of old sidebar rows, supported profile fields, historical snapshot guards, the read-only viewer. Files: `lib/native-subagent*.ts`, `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/AgentSessionPanel.tsx`, `components/SubagentViewer.tsx`, `components/subagent-viewer-state.ts`.
 - [client-platform.md](docs/agents/client-platform.md): mobile software keyboard and viewport height, the terminal's extra keys, its own dark/light theme and its font size following the chat's, completion sound. Files: `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, `terminalFontSize()` in `hooks/useChatAppearance.ts`, the keyboard-open CSS.
 
 ---

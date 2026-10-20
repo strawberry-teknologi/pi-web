@@ -1,122 +1,85 @@
 import { NextResponse } from "next/server";
-import { existsSync } from "fs";
+import { statSync } from "node:fs";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import {
-  deleteSubagentProfile,
-  listSubagentProfileSources,
-  saveSubagentProfile,
-  type SubagentProfile,
-  type SubagentWritableScope,
-} from "@/lib/subagents";
-import { writeDisabledBuiltInSubagent } from "@/lib/subagent-settings";
-
+import { listNativeSubagentProfiles, saveNativeSubagentProfile, deleteNativeSubagentProfile } from "@/lib/native-subagent-profiles";
+import type { SubagentProfile, SubagentWritableScope } from "@/lib/subagents";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 export const dynamic = "force-dynamic";
-
-async function validateCwd(cwd: unknown): Promise<string> {
-  if (typeof cwd !== "string" || !cwd || !existsSync(cwd)) throw new Error("Valid cwd required");
-  if (!isExistingFilePathAllowed(cwd, await getAllowedFileRoots())) throw new Error("Access denied");
-  return cwd;
+async function context(cwd: unknown) {
+    if (typeof cwd !== "string" || !cwd || !statSync(cwd, { throwIfNoEntry: false })?.isDirectory())
+        throw new Error("Valid cwd required");
+    const roots = await getAllowedFileRoots();
+    if (!isExistingFilePathAllowed(cwd, roots))
+        throw new Error("Access denied");
+    return { cwd, roots };
 }
-
-function validateScope(scope: unknown): SubagentWritableScope {
-  if (scope !== "global" && scope !== "project") throw new Error("scope must be global or project");
-  return scope;
+function scope(value: unknown): SubagentWritableScope {
+    if (value !== "global" && value !== "project")
+        throw new Error("scope must be global or project");
+    return value;
 }
-
-/** A built-in has no file to save or delete, but its switch is persisted all the same. */
-function validateToggleScope(scope: unknown): SubagentWritableScope | "builtin" {
-  if (scope === "builtin") return scope;
-  if (scope !== "global" && scope !== "project") throw new Error("scope must be global, project, or builtin");
-  return scope;
+function failure(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
 }
-
+function guard(req: Request) {
+    if (!isApiRequestAllowed(req))
+        return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+    if (!hasJsonContentType(req))
+        return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+    return null;
+}
 export async function GET(req: Request) {
-  try {
-    const cwd = await validateCwd(new URL(req.url).searchParams.get("cwd"));
-    return NextResponse.json({ profiles: listSubagentProfileSources(cwd) });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
-  }
+    try {
+        const { cwd, roots } = await context(new URL(req.url).searchParams.get("cwd"));
+        return NextResponse.json({ profiles: listNativeSubagentProfiles(cwd, roots) });
+    }
+    catch (error) {
+        return failure(error);
+    }
 }
-
 export async function PUT(req: Request) {
-  try {
-    const body = await req.json() as {
-      cwd?: unknown;
-      scope?: unknown;
-      profile?: Omit<SubagentProfile, "scope" | "filePath">;
-    };
-    const cwd = await validateCwd(body.cwd);
-    const scope = validateScope(body.scope);
-    if (!body.profile || typeof body.profile.name !== "string") {
-      return NextResponse.json({ error: "profile required" }, { status: 400 });
+    const denied = guard(req);
+    if (denied)
+        return denied;
+    try {
+        const body = await req.json() as {
+            cwd?: unknown;
+            scope?: unknown;
+            profile?: SubagentProfile;
+        };
+        const { cwd, roots } = await context(body.cwd);
+        if (!body.profile || typeof body.profile.name !== "string")
+            throw new Error("profile required");
+        return NextResponse.json({ profile: saveNativeSubagentProfile(cwd, scope(body.scope), body.profile, roots) });
     }
-    return NextResponse.json({ profile: saveSubagentProfile(cwd, scope, body.profile) });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
-  }
+    catch (error) {
+        return failure(error);
+    }
 }
-
 export async function PATCH(req: Request) {
-  try {
-    const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown; enabled?: unknown };
-    const cwd = await validateCwd(body.cwd);
-    const scope = validateToggleScope(body.scope);
-    if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
-    if (typeof body.enabled !== "boolean") return NextResponse.json({ error: "enabled required" }, { status: 400 });
-    const name = body.name;
-    const source = listSubagentProfileSources(cwd).find((profile) =>
-      profile.scope === scope && profile.name.toLowerCase() === name.toLowerCase()
-    );
-    if (!source) return NextResponse.json({ error: "Agent profile not found" }, { status: 404 });
-    if (scope === "builtin") {
-      writeDisabledBuiltInSubagent(source.name, !body.enabled);
-      return NextResponse.json({ profile: { ...source, enabled: body.enabled } });
-    }
-    const profile: Omit<SubagentProfile, "scope" | "filePath"> = {
-      name: source.name,
-      displayName: source.displayName,
-      description: source.description,
-      systemPrompt: source.systemPrompt,
-      tools: source.tools,
-      ...(source.extensionTools !== undefined ? { extensionTools: [...source.extensionTools] } : {}),
-      ...(source.disallowedExtensionTools !== undefined ? { disallowedExtensionTools: [...source.disallowedExtensionTools] } : {}),
-      loadSkills: source.loadSkills,
-      ...(source.skills !== undefined ? { skills: [...source.skills] } : {}),
-      loadExtensions: source.loadExtensions,
-      ...(source.extensions !== undefined ? { extensions: [...source.extensions] } : {}),
-      codemode: source.codemode,
-      mcp: source.mcp,
-      promptMode: source.promptMode,
-      model: source.model,
-      thinking: source.thinking,
-      maxTurns: source.maxTurns,
-      inheritContext: source.inheritContext,
-      runInBackground: source.runInBackground,
-      color: source.color,
-      isolation: source.isolation,
-      persistSession: source.persistSession,
-      enabled: source.enabled,
-    };
-    return NextResponse.json({ profile: saveSubagentProfile(cwd, scope, { ...profile, enabled: body.enabled }) });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
-  }
+    const denied = guard(req);
+    if (denied)
+        return denied;
+    return NextResponse.json({ error: "Profile activation is not supported by the subagent extension. Remove a profile to stop offering it." }, { status: 410 });
 }
-
 export async function DELETE(req: Request) {
-  try {
-    const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown };
-    const cwd = await validateCwd(body.cwd);
-    const scope = validateScope(body.scope);
-    if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
-    deleteSubagentProfile(cwd, scope, body.name);
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
-  }
+    const denied = guard(req);
+    if (denied)
+        return denied;
+    try {
+        const body = await req.json() as {
+            cwd?: unknown;
+            scope?: unknown;
+            name?: unknown;
+        };
+        const { cwd, roots } = await context(body.cwd);
+        if (typeof body.name !== "string")
+            throw new Error("name required");
+        deleteNativeSubagentProfile(cwd, scope(body.scope), body.name, roots);
+        return NextResponse.json({ ok: true });
+    }
+    catch (error) {
+        return failure(error);
+    }
 }

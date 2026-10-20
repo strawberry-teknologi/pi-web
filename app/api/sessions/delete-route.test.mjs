@@ -12,7 +12,9 @@ const jiti = createJiti(import.meta.url, {
   moduleCache: false,
 });
 const { POST: deleteSessionsRoute } = await jiti.import("./delete/route.ts");
-const { MAX_SESSION_DELETE_IDS } = await jiti.import("../../../lib/session-delete.ts");
+const {createEventBus}=await jiti.import('@earendil-works/pi-coding-agent');
+const {createNativeSubagentBridge}=await jiti.import('../../../lib/native-subagents.ts');
+const { MAX_SESSION_DELETE_IDS, deleteSessions } = await jiti.import("../../../lib/session-delete.ts");
 const { PROJECT_DELETE_IDS_PER_REQUEST } = await jiti.import("../../../lib/sidebar-actions.ts");
 const { invalidateSessionListCache, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
 const {
@@ -76,6 +78,23 @@ async function scratchAgentDir(t) {
   await mkdir(sessionsDir, { recursive: true });
   return { dir, sessionsDir, ids };
 }
+
+test('even direct deletion cannot remove an extension-owned active child or its parent', async t => {
+  const {sessionsDir,ids}=await scratchAgentDir(t);
+  ids.push('native-parent','native-child');
+  const parent=await writeSession(sessionsDir,'native-parent',{id:'native-parent',cwd:'/work/alpha'});
+  const child=join(sessionsDir,'native-child.jsonl');
+  const run={version:1,sessionId:'native-child',sessionPath:child,runId:'r',parentSessionId:'native-parent',parentSessionPath:parent,parentToolCallId:'call',agent:'quick',task:'wait',createdAt:TIME,status:'running',ownerPid:process.pid};
+  await writeFile(child,[{type:'session',version:3,id:'native-child',cwd:'/work/alpha',timestamp:TIME,parentSession:parent},{type:'custom',customType:'subagent:run',id:'meta',parentId:null,timestamp:TIME,data:run}].map(entry=>JSON.stringify(entry)).join('\n')+'\n');
+  const bus=createEventBus();const bridge=createNativeSubagentBridge(bus,()=> 'native-parent',()=>{});
+  bus.emit('subagent:run',run);t.after(()=>bridge.dispose());
+  const result=await deleteSessions(['native-parent']);
+  assert.deepEqual(result.deleted,[]);assert.deepEqual(result.running,['native-parent']);
+  assert.ok(existsSync(child));assert.ok(existsSync(parent));
+  bridge.dispose();
+  const orphan=await deleteSessions(['native-parent']);
+  assert.deepEqual(orphan.deleted,[]);assert.deepEqual(orphan.running,['native-parent']);
+});
 
 test("deletes a project's sessions in one request, with their subagents, keeping a run and re-pointing what stays", async (t) => {
   const { sessionsDir, ids } = await scratchAgentDir(t);

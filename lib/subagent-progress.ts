@@ -5,6 +5,7 @@ export interface SubagentActivity {
   toolName?: string;
   preview: string;
   output?: string;
+  details?: { input?: string; output?: string };
   timestamp?: number;
   isError: boolean;
 }
@@ -13,8 +14,8 @@ function preview(text: string, limit = 180): string {
   return text.trim().replace(/\s+/g, " ").slice(0, limit);
 }
 
-/** Recorded activity only: never expose thinking or treat the delegated task as progress. */
-export function getSubagentActivities(messages: readonly AgentMessage[], entryIds: readonly string[]): SubagentActivity[] {
+/** Recorded activity only; full details are opt-in so stats responses stay bounded. Never expose thinking. */
+export function getSubagentActivities(messages: readonly AgentMessage[], entryIds: readonly string[], includeDetails = false): SubagentActivity[] {
   const activities = new Map<string, SubagentActivity>();
   messages.forEach((message, index) => {
     const timestamp = message.timestamp;
@@ -24,26 +25,31 @@ export function getSubagentActivities(messages: readonly AgentMessage[], entryId
         ? time.timestamp + Math.max(0, message.durationMs)
         : time.timestamp;
       const end = endedAt !== undefined && Number.isFinite(new Date(endedAt).getTime()) ? { timestamp: endedAt } : time;
-      const text = message.errorMessage || message.content.filter((block) => block.type === "text").map((block) => block.text).join(" ");
+      const text = message.errorMessage || message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n\n");
       if (text.trim()) {
         const id = `${entryIds[index] ?? index}:text`;
-        activities.set(id, { id, preview: preview(text), ...end, isError: Boolean(message.errorMessage || message.stopReason === "error") });
+        activities.set(id, { id, preview: preview(text), ...(includeDetails ? { details: { output: text } } : {}), ...end, isError: Boolean(message.errorMessage || message.stopReason === "error") });
       }
       for (const block of message.content) {
         if (block.type !== "toolCall") continue;
         const value = block.input.command ?? block.input.path ?? block.input.file_path ?? block.input.pattern ?? block.input.query;
         const id = `tool:${block.toolCallId}`;
-        activities.set(id, { id, toolName: block.toolName, preview: typeof value === "string" ? preview(value) : "", ...end, isError: false });
+        activities.set(id, {
+          id, toolName: block.toolName, preview: typeof value === "string" ? preview(value) : "",
+          ...(includeDetails ? { details: { input: block.rawInput ?? JSON.stringify(block.input, null, 2) } } : {}),
+          ...end, isError: false,
+        });
       }
     } else if (message.role === "toolResult") {
       const id = `tool:${message.toolCallId}`;
       const call = activities.get(id);
-      const output = preview(message.content.filter((block) => block.type === "text").map((block) => block.text).join(" "), 240);
+      const output = message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
       // A result moves its call to the end, including when parallel tools finish out of order.
       activities.delete(id);
       activities.set(id, {
         id, toolName: message.toolName ?? call?.toolName,
-        preview: call?.preview ?? "", output,
+        preview: call?.preview ?? "", output: preview(output, 240),
+        ...(includeDetails ? { details: { ...call?.details, output } } : {}),
         ...(call?.timestamp !== undefined ? { timestamp: call.timestamp } : {}),
         ...time, isError: Boolean(message.isError),
       });

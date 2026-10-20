@@ -7,8 +7,8 @@ export interface SubagentProfilesResponse {
 }
 
 export interface SubagentSettingsResponse {
-  enabled: boolean;
-  maxConcurrent: number;
+  implementation: 'extension';
+  loaded: boolean | null;
 }
 
 /** Code mode's one choice (ADR 0006): Automatic writes nothing, Always on adds `+codemode` to the global defaultTools. */
