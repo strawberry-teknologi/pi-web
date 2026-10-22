@@ -3,6 +3,8 @@
 Internal URL: http://pi-web-ryzen.tpk (NetBird only). AdGuard rewrite points to
 100.101.143.202. No Cloudflare Tunnel route or public DNS record.
 
+The ingress proxy uses the shared `uncloud-caddy-ca:2.11.7-go1.27.3-ca20261020` image, built from the tracked recipe in the adjacent Uncloud repository. Preload it to `thinkpad-ryzen` with `uc image push` before deploying this stack; the Pi Web host service and session data are unchanged.
+
 Pi Web runs as host user `ndjoe`, preserving `/home/ndjoe/.pi` and host tools.
 The system service binds only to the Uncloud bridge, `10.210.0.1:30141`.
 A machine-pinned Uncloud proxy provides ingress; Caddy rejects non-VPN peers

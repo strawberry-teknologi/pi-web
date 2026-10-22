@@ -1,6 +1,7 @@
 services:
   pi-web-ryzen-proxy:
-    image: caddy:2.11.6
+    image: uncloud-caddy-ca:2.11.7-go1.27.3-ca20261020
+    pull_policy: never
     scale: 1
     x-machines: thinkpad-ryzen
     command: ["caddy", "reverse-proxy", "--from", ":8080", "--to", "10.210.0.1:30141"]
