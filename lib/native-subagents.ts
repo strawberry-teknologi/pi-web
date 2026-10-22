@@ -82,6 +82,19 @@ export function getRunningNativeSubagentIds(): string[] {
     }
     return ids;
 }
+export function hasRunningNativeSubagent(sessionId: string): boolean {
+    const active = getRunningNativeSubagentIds();
+    for (const id of active) {
+        const seen = new Set<string>([id]);
+        let parent = runs().get(id)?.run.parentSessionId;
+        while (parent && !seen.has(parent)) {
+            if (parent === sessionId) return true;
+            seen.add(parent);
+            parent = runs().get(parent)?.run.parentSessionId;
+        }
+    }
+    return false;
+}
 export function getProtectedNativeSubagentIds(): string[] {
     const ids: string[] = [];
     for (const [id, tracked] of runs()) {
