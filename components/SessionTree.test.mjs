@@ -11,7 +11,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { SessionTree, sessionRowTitle } = await jiti.import("./SessionTree.tsx");
-const { buildSessionTree, SIDEBAR_ROW_HEIGHTS } = await jiti.import("@/lib/session-tree.ts");
+const { buildSessionTree, getRowOffsets, SIDEBAR_ROW_HEIGHTS } = await jiti.import("@/lib/session-tree.ts");
 const source = await readFile(new URL("./SessionTree.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/sidebar.css", import.meta.url), "utf8");
 
@@ -455,10 +455,11 @@ test("renders the model built from a catalog with unique row keys", () => {
   const html = render({ rows: model.rows });
   const keys = renderedKeys(html);
   assert.equal(new Set(keys).size, keys.length);
-  assert.deepEqual(keys, ["pinned-header", "session:pinned:b", "group:/work/app", "session:group:a", "footer-open"]);
+  assert.deepEqual(keys, ["active-header", "session:active:a", "pinned-header", "session:pinned:b", "group:/work/app", "session:group:a", "footer-open"]);
   const familyRow = rowMarkup(html, "session:group:a");
   assert.match(familyRow, /is-selected/);
   assert.match(familyRow, /aria-label="Agent running…"/);
+  assert.match(rowMarkup(html, "active-header"), /class="session-tree-row session-tree-active-header"[^>]*>.*· 1/, "the section's header names it and counts its rows, with no toggle");
   assert.match(rowMarkup(html, "session:pinned:b"), /<span class="session-tree-project">other<\/span>/);
 });
 
@@ -533,18 +534,40 @@ test("headers lead with their chevron, and every row's text starts in one column
   // The pinned section's chevron in the same column (its row spans the
   // whole width, a group's sits at the inset).
   assert.match(cssRule(".session-tree-pinned-toggle"), /padding: 0 8px 0 calc\(var\(--session-tree-inset-left\) \+ 5px\);/);
+  // The active section's header is the pinned label without the toggle, in
+  // the same column.
+  assert.match(cssRule(".session-tree-active-header"), /padding: 0 8px 0 calc\(var\(--session-tree-inset-left\) \+ 5px\);/);
 
   // No layout overrides these paddings, so phones line up the same way.
   assert.doesNotMatch(css, /\.is-mobile \.session-tree-(?:session|group-toggle|group-empty|more|pinned-toggle|archive-group|footer-button) \{[^}]*padding/);
   // One rhythm: session rows, every header (a project's, the pinned
   // section's, the archive's projects), the empty note and the footer are
   // one height, 28px (44px on a phone); only "show more" is shorter.
-  assert.deepEqual(SIDEBAR_ROW_HEIGHTS.desktop, { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 });
+  assert.deepEqual(SIDEBAR_ROW_HEIGHTS.desktop, { "active-header": 28, "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 });
   for (const [layout, height] of [["desktop", 28], ["mobile", 44]]) {
-    for (const kind of ["session", "group", "pinned-header", "group-empty", "footer-open", "footer-archived", "archive-group"]) {
+    for (const kind of ["session", "group", "active-header", "pinned-header", "group-empty", "footer-open", "footer-archived", "archive-group"]) {
       assert.equal(SIDEBAR_ROW_HEIGHTS[layout][kind], height, `${layout} ${kind}`);
     }
   }
+});
+
+test("Active rows show their project below the title without losing status or row spacing", () => {
+  const active = sessionRow(session("busy"), {
+    context: "active", status: { running: true },
+    rowProject: { ...project, name: "A very long project name", root: "/work/long-project" },
+  });
+  const ordinary = sessionRow(session("idle"));
+  for (const layout of ["desktop", "mobile"]) {
+    const html = render({ rows: [active, ordinary], layout });
+    const row = rowMarkup(html, active.key);
+    assert.match(row, /class="session-tree-label"><span class="session-tree-title">first busy<\/span><span class="session-tree-folder" title="\/work\/long-project">A very long project name<\/span><\/span>/);
+    assert.match(row, /session-tree-meta is-running/);
+    assert.doesNotMatch(rowMarkup(html, ordinary.key), /session-tree-folder/);
+    const offsets = getRowOffsets([active, ordinary], layout);
+    assert.equal(offsets[1], SIDEBAR_ROW_HEIGHTS[layout].session + 16);
+    assert.equal(offsets[2] - offsets[1], SIDEBAR_ROW_HEIGHTS[layout].session);
+  }
+  assert.match(cssRule(".session-tree-folder"), /text-overflow: ellipsis/);
 });
 
 test("group headers draw nothing for a drag while idle", () => {

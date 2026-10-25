@@ -24,7 +24,7 @@ import { workspaceKeyOf } from "./workspace-memory";
 
 export type SidebarLayout = "desktop" | "mobile";
 export type SidebarRowKind =
-  | "pinned-header" | "session" | "pinned-more" | "group" | "group-more" | "group-empty"
+  | "active-header" | "pinned-header" | "session" | "pinned-more" | "group" | "group-more" | "group-empty"
   | "spacer" | "footer-open" | "footer-archived" | "archive-group";
 
 /**
@@ -36,8 +36,8 @@ export type SidebarRowKind =
  * footer; groups themselves sit right on each other, with none between them.
  */
 export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, number>> = {
-  desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
-  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
+  desktop: { "active-header": 28, "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
+  mobile: { "active-header": 44, "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
 };
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
@@ -54,13 +54,14 @@ export interface SidebarProject { key: string; root: string; name: string; custo
 export interface SidebarFamilyStatus { running: boolean; awaiting: boolean; unread: boolean; selected: boolean; transient: boolean }
 
 export type SidebarRow =
+  | { kind: "active-header"; key: "active-header"; count: number }
   | { kind: "pinned-header"; key: "pinned-header"; count: number; collapsed: boolean; running: number; unread: number }
-  | { kind: "session"; key: string; family: SessionFamily; context: "pinned" | "group" | "archive"; project: SidebarProject; status: SidebarFamilyStatus; archivedAt: number | null }
+  | { kind: "session"; key: string; family: SessionFamily; context: "active" | "pinned" | "group" | "archive"; project: SidebarProject; status: SidebarFamilyStatus; archivedAt: number | null }
   | { kind: "pinned-more"; key: "pinned-more"; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group"; key: string; project: SidebarProject; expanded: boolean; running: number; unread: number }
   | { kind: "group-more"; key: string; projectKey: string; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group-empty"; key: string; project: SidebarProject }
-  | { kind: "spacer"; key: "pinned-spacer" | "footer-spacer" }
+  | { kind: "spacer"; key: "active-spacer" | "pinned-spacer" | "footer-spacer" }
   | { kind: "footer-open"; key: "footer-open" }
   | { kind: "footer-archived"; key: "footer-archived"; count: number }
   | { kind: "archive-group"; key: string; project: SidebarProject; count: number; expanded: boolean };
@@ -296,7 +297,7 @@ function createProjectResolver(
 
 function sessionRow(
   family: SessionFamily,
-  context: "pinned" | "group" | "archive",
+  context: "active" | "pinned" | "group" | "archive",
   project: SidebarProject,
   input: FamilyFlagsInput,
   archivedAt: number | null,
@@ -408,6 +409,9 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
 
   let archivedCount = 0;
   const pinnedFamilies: SessionFamily[] = [];
+  // Running or unread families, pinned ones aside: a pinned row already shows
+  // them right below the section.
+  const activeFamilies: SessionFamily[] = [];
   // Insertion order follows family activity (newest first).
   const projectFamilies = new Map<string, SessionFamily[]>();
   const projectActivity = new Map<string, number>();
@@ -428,12 +432,24 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
       pinnedFamilies.push(family);
       continue;
     }
+    const status = familyStatus(family, input);
+    if (status.running || status.unread) activeFamilies.push(family);
     const list = projectFamilies.get(key);
     if (list) list.push(family);
     else projectFamilies.set(key, [family]);
   }
 
   const rows: SidebarRow[] = [];
+
+  // Active section: what the user must look at, running or not yet read, in
+  // family activity order, whatever project it belongs to.
+  if (activeFamilies.length > 0) {
+    rows.push({ kind: "active-header", key: "active-header", count: activeFamilies.length });
+    for (const family of activeFamilies) {
+      rows.push(sessionRow(family, "active", resolver.get(familyProjectKey(family)), input, null));
+    }
+    rows.push({ kind: "spacer", key: "active-spacer" });
+  }
 
   // Pinned section: newest pin first; ties keep family activity order.
   if (pinnedFamilies.length > 0) {
@@ -683,7 +699,9 @@ export function getRowOffsets(rows: readonly SidebarRow[], layout: SidebarLayout
   const offsets = new Array<number>(rows.length + 1);
   offsets[0] = 0;
   for (let index = 0; index < rows.length; index++) {
-    offsets[index + 1] = offsets[index] + heights[rows[index].kind];
+    const row = rows[index];
+    const folderLine = row.kind === "session" && row.context === "active" ? 16 : 0;
+    offsets[index + 1] = offsets[index] + heights[row.kind] + folderLine;
   }
   return offsets;
 }

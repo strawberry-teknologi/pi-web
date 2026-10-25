@@ -1543,11 +1543,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [],
   );
 
-  // A family's row where the tree shows it now (pinned, in its group, or in
-  // the open archive view), else the selected tab.
+  // A family's row where the tree shows it now (active, pinned, in its group,
+  // or in the open archive view), else the selected tab.
   const familyRowButton = useCallback((rootId: string): HTMLElement | null => {
     const panel = sessionsPanelRef.current;
-    for (const context of ["pinned", "group", "archive"]) {
+    for (const context of ["active", "pinned", "group", "archive"]) {
       const key = CSS.escape(`session:${context}:${rootId}`);
       const button = panel?.querySelector<HTMLElement>(`[data-row-key="${key}"] .session-tree-main`);
       if (button && button.getClientRects().length > 0) return button;

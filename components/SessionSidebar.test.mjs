@@ -108,7 +108,7 @@ test("subagents fold into their main session row, which carries their running, u
     selectedSessionId: "child",
     currentProject: { key: "/work/alpha", root: "/work/alpha" },
   }));
-  const sessionRows = rows.filter((row) => row.kind === "session");
+  const sessionRows = rows.filter((row) => row.kind === "session" && row.context === "group");
   assert.deepEqual(sessionRows.map((row) => row.family.root.id), ["main"]);
   assert.deepEqual(sessionRows[0].status, { running: true, awaiting: false, unread: true, selected: true, transient: false });
 });

@@ -152,6 +152,17 @@
   text-transform: uppercase;
 }
 
+/* The active section's header: the pinned label, not a toggle (the section
+   always shows everything it holds). */
+.session-tree-active-header {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px 0 calc(var(--session-tree-inset-left) + 5px);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .session-tree-pinned-count {
   color: var(--text-dim);
   font-weight: 400;
@@ -305,6 +316,22 @@ a.session-tree-main {
   overflow: hidden;
   color: var(--text);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tree-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 16px;
+}
+
+.session-tree-folder {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

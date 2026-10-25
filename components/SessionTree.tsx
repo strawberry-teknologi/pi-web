@@ -612,16 +612,23 @@ const SessionRowView = memo(function SessionRowView({
   // family, which would come straight back.
   const quickAction = layout === "desktop" && (context === "archive" || !status.running);
 
-  const mainContent = (
-    <>
-      {forkTitle ? (
+  const titleContent = forkTitle ? (
         <span className="session-tree-title has-fork-suffix">
           <span className="session-tree-title-base">{forkTitle.base}</span>
           <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
         </span>
       ) : (
         <span className="session-tree-title">{title}</span>
-      )}
+      );
+
+  const mainContent = (
+    <>
+      {context === "active" ? (
+        <span className="session-tree-label">
+          {titleContent}
+          <span className="session-tree-folder" title={row.project.root}>{row.project.name}</span>
+        </span>
+      ) : titleContent}
       {branch && (
         <span className="session-tree-branch">
           <BranchIcon size={10} className="session-tree-branch-icon" />
@@ -981,6 +988,13 @@ const PlainRowView = memo(function PlainRowView({
   const style = rowStyle(top, height);
 
   switch (row.kind) {
+    case "active-header":
+      return (
+        <div className="session-tree-row session-tree-active-header" style={style} data-row-key={row.key}>
+          <span className="session-tree-pinned-label">{t("sidebar.activeSessions")}</span>
+          <span className="session-tree-pinned-count">· {row.count}</span>
+        </div>
+      );
     case "pinned-header":
       return (
         <div className="session-tree-row session-tree-pinned-header" style={style} data-row-key={row.key}>
