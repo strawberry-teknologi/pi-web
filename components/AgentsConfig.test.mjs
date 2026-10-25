@@ -15,7 +15,10 @@ test('native profile draft keeps tools and the whole fallback model reference',(
  assert.equal('loadExtensions' in draft,false);
 });
 test('native settings do not offer unsupported built-in policies',()=>{
- for (const obsolete of ['toggleBuiltInSubagents','toggleEnabled','updateMaxConcurrent','ModelSelector','agents.maxTurns','agents.inheritContext','agents.background','agents.mcp','agents.codemode']) assert.equal(source.includes(obsolete),false,obsolete);
+ for (const obsolete of ['toggleBuiltInSubagents','toggleEnabled','updateMaxConcurrent','agents.maxTurns','agents.inheritContext','agents.background','agents.mcp','agents.codemode']) assert.equal(source.includes(obsolete),false,obsolete);
  assert.ok(source.includes('agents.extensionDescription'));
  assert.ok(source.includes('agents.extensionMissing'));
+ assert.ok(source.includes('<SubagentProfileFields'));
+ assert.equal(source.includes('const TOOL_OPTIONS'),false);
+ assert.equal(source.includes('placeholder={t("agents.inherit")}'),false);
 });

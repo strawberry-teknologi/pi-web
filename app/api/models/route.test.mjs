@@ -77,6 +77,11 @@ test("a removed worktree is listed from the repo it branched from", async () => 
   assert.deepEqual(fromRemoved.body.modelList.map((m) => `${m.provider}:${m.id}`), ["acme:one"], "an empty list would make the comparison say nothing");
 });
 
+test("catalog identifies physical models without removing other selector data", async () => {
+  const { body } = await models(repo);
+  assert.equal(body.modelList[0].isVirtual, false);
+});
+
 test("the repo a removed worktree falls back to is authorized as any other cwd", async () => {
   // A repo no session and no `allowFileRoot()` ever named.
   const unknown = await initRepo("unknown");

@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 async function loadModels(cwd: string): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
+  let modelList: ModelsData["modelList"] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
@@ -49,6 +49,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     name: m.name,
     provider: m.provider,
     input: m.input,
+    isVirtual: m.api === "pi-virtual",
   }));
   for (const m of visible) {
     const key = `${m.provider}:${m.id}`;

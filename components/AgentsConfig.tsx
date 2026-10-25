@@ -7,9 +7,9 @@ import { displayPathWithin, shortenPath } from "@/lib/display-path";
 import type { SubagentProfile, SubagentWritableScope } from "@/lib/subagents";
 import { getLastSettingsSelection, setLastSettingsSelection } from "@/lib/settings-navigation";
 import { ConfigButton, ConfigDetail, ConfigDetailActions, ConfigDetailHeader, ConfigDetailHeaderInfo, ConfigDetailStack, ConfigEmptyState, ConfigField, ConfigFooter, ConfigListAction, ConfigPanelShell, ConfigSaveTarget, ConfigScopeTag, ConfigSidebar, ConfigSidebarGroupLabel, ConfigSidebarItem, ConfigSidebarList, ConfigSidebarText, ConfigSplitView, } from "./SettingsUi";
+import { SubagentProfileFields } from "./SubagentProfileFields";
 type EditableProfile = Pick<SubagentProfile, "name" | "description" | "systemPrompt" | "tools" | "model">;
 const EMPTY_PROFILE: EditableProfile = { name: "custom-agent", description: "", systemPrompt: "", tools: [] };
-const TOOL_OPTIONS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const inputStyle: CSSProperties = { width: "100%", minWidth: 0, height: 34, padding: "0 9px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text)", fontSize: 12 };
 function editableProfile(profile: SubagentProfile): EditableProfile {
     return { name: profile.name, description: profile.description, systemPrompt: profile.systemPrompt, tools: [...profile.tools], ...(profile.model ? { model: profile.model } : {}) };
@@ -179,12 +179,7 @@ export function AgentsConfig({ cwd, sessionId = null, onClose, onReloaded, embed
       <ConfigField label={t("agents.name")}><input aria-label={t("agents.name")} style={inputStyle} disabled={saving || !creating} value={draft.name} onChange={event => update("name", event.target.value)}/></ConfigField>
       <ConfigField label={t("agents.description")}><input aria-label={t("agents.description")} style={inputStyle} disabled={saving} value={draft.description} onChange={event => update("description", event.target.value)}/></ConfigField>
       <ConfigField label={t("agents.prompt")}><textarea className="agents-system-prompt" aria-label={t("agents.prompt")} disabled={saving} value={draft.systemPrompt} onChange={event => update("systemPrompt", event.target.value)} style={{ ...inputStyle, height: 195, minHeight: 195, padding: 9, resize: "vertical", lineHeight: 1.5 }}/></ConfigField>
-      <ConfigField label={t("agents.tools")}>
-       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px" }}>{TOOL_OPTIONS.map(tool => <label key={tool} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--text-muted)" }}><input type="checkbox" disabled={saving} checked={draft.tools.includes(tool)} onChange={event => update("tools", event.target.checked ? [...draft.tools, tool] : draft.tools.filter(item => item !== tool))}/>{tool}</label>)}</div>
-       <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{draft.tools.filter(tool => !TOOL_OPTIONS.includes(tool)).join(", ")}</span>
-       <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("agents.extensionToolsHint")}</span>
-      </ConfigField>
-      <ConfigField label={t("agents.model")}><input aria-label={t("agents.model")} style={inputStyle} disabled={saving} value={draft.model ?? ""} placeholder={t("agents.inherit")} onChange={event => update("model", event.target.value || undefined)}/><span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("agents.extensionModelHint")}</span></ConfigField>
+      <SubagentProfileFields key={`${cwd}:${selectedKey ?? "new"}`} cwd={cwd} model={draft.model} tools={draft.tools} disabled={saving} onModelChange={value => update("model", value)} onToolsChange={value => update("tools", value)}/>
      </ConfigDetailStack>}
     </ConfigDetailStack></ConfigDetail>
    </ConfigSplitView>
