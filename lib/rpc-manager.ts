@@ -33,7 +33,7 @@ import type {
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { abortNativeSubagent, createNativeSubagentBridge, getRunningNativeSubagentIds } from './native-subagents';
-import { readNativeSubagentRecord } from './native-subagent-records';
+import { readNativeSubagentRecord, readNativeSubagentTask } from './native-subagent-records';
 import {
   hasSubagentResourceSnapshot,
   readSubagentRun,
@@ -2103,7 +2103,17 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
 
 export async function getSubagentRun(sessionId: string) {
   const file = await resolveSessionPath(sessionId);
-  return file ? readSubagentRun(openSessionManager(file).getEntries() as unknown as SessionEntry[], sessionId, file) : null;
+  if (!file) return null;
+  const manager = openSessionManager(file);
+  const entries = manager.getEntries() as unknown as SessionEntry[];
+  // Native runs are branch-local; keep historical integrated selection unchanged.
+  const branch = readNativeSubagentRecord(entries, sessionId)
+    ? manager.getBranch() as unknown as SessionEntry[]
+    : entries;
+  const run = readSubagentRun(branch, sessionId, file);
+  if (!run) return null;
+  const taskInfo = readNativeSubagentTask(branch, sessionId);
+  return { ...run, ...(taskInfo ? { taskInfo } : {}) };
 }
 
 export function abortSubagent(sessionId: string) {

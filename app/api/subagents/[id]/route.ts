@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { abortSubagent, getSubagentRun } from "@/lib/rpc-manager";
+import { jsonResponse } from "@/lib/json-response";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   try {
     const run = await getSubagentRun(id);
     if (!run) return NextResponse.json({ error: "Subagent not found" }, { status: 404 });
-    return NextResponse.json({ run });
+    return jsonResponse(req, { run });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

@@ -50,6 +50,33 @@ export function readNativeSubagentRecord(entries: readonly SessionEntry[], id: s
     }
     return null;
 }
+export interface NativeSubagentTask {
+    version: 1;
+    sessionId: string;
+    runId: string;
+    task: string;
+    instructions?: string;
+}
+/** Entries must be from the active branch; never reuse another run's instructions. */
+export function readNativeSubagentTask(entries: readonly SessionEntry[], sessionId: string): NativeSubagentTask | null {
+    const run = readNativeSubagentRecord(entries, sessionId);
+    if (!run)
+        return null;
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (entry.type !== "custom" || entry.customType !== "subagent:task")
+            continue;
+        const data = entry.data;
+        if (!isRecord(data) || data.version !== 1 || data.sessionId !== sessionId || data.runId !== run.runId
+            || typeof data.task !== "string" || (data.instructions !== undefined && typeof data.instructions !== "string"))
+            continue;
+        return {
+            version: 1, sessionId, runId: run.runId, task: data.task,
+            ...(typeof data.instructions === "string" ? { instructions: data.instructions } : {}),
+        };
+    }
+    return null;
+}
 export function readNativeSubagentRun(entries: readonly SessionEntry[], id: string, path: string): SubagentRunInfo | null {
     const run = readNativeSubagentRecord(entries, id);
     return run ? nativeSubagentRun(run, path) : null;
