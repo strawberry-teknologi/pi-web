@@ -95,8 +95,11 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile, 
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
-    let inFlight = false;
+    let contextInFlight = false;
+    let detailInFlight = false;
     const loadContext = async () => {
+      if (cancelled || contextInFlight) return;
+      contextInFlight = true;
       try {
         const res = await fetch(contextUrl(sessionId), { signal: controller.signal, cache: "no-store" });
         if (res.status === 404) {
@@ -113,9 +116,13 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile, 
         if (!cancelled && !(err instanceof Error && err.name === "AbortError")) {
           setError(err instanceof Error ? err.message : String(err));
         }
+      } finally {
+        contextInFlight = false;
       }
     };
     const loadDetail = async () => {
+      if (cancelled || detailInFlight) return;
+      detailInFlight = true;
       try {
         const res = await fetch(`/api/subagents/${encodeURIComponent(sessionId)}`, { signal: controller.signal, cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -130,13 +137,13 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile, 
           setRun(null);
           setMetadataError(true);
         }
+      } finally {
+        detailInFlight = false;
       }
     };
-    const load = async () => {
-      if (inFlight) return;
-      inFlight = true;
-      await Promise.allSettled([loadContext(), loadDetail()]);
-      inFlight = false;
+    const load = () => {
+      void loadContext();
+      void loadDetail();
     };
     void load();
     if (!running) {

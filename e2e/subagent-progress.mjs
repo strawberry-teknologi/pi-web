@@ -218,8 +218,27 @@ async function checkNativeTask({ page, base, artifacts, width, fixture }) {
   await page.getByRole("tab", { name: "Sub-agent Metadata independent of context", exact: true }).waitFor();
   await page.unroute(contextRoute);
   await refresh().click();
-  // Hold a detail read across multiple poll ticks: no overlap, then close and
-  // switch children before releasing it. The late result cannot recreate a tab.
+  // A stalled context read cannot hold the independently healthy metadata poll.
+  let releaseContext;
+  const contextGate = new Promise(resolve => { releaseContext = resolve; });
+  let contextRequests = 0;
+  await page.route(contextRoute, async route => {
+    contextRequests++;
+    const response = await route.fetch();
+    await contextGate;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  appendNativeRun(native, { task: "Metadata before context stall" });
+  await refresh().click();
+  await page.getByRole("tab", { name: "Sub-agent Metadata before context stall", exact: true }).waitFor();
+  assert.equal(contextRequests, 1);
+  appendNativeRun(native, { task: "Metadata independent of stalled context", instructions: "Current guidance while context waits" });
+  await page.getByRole("tab", { name: "Sub-agent Metadata independent of stalled context", exact: true }).waitFor({ timeout: 6000 });
+  assert.equal(contextRequests, 1, "context reads remain serial while metadata polling continues");
+  releaseContext();
+  await page.unroute(contextRoute);
+  // Hold a detail read across multiple poll ticks: no metadata overlap, healthy
+  // context still advances, and closing before release cannot recreate a tab.
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   let detailRequests = 0;
@@ -229,15 +248,21 @@ async function checkNativeTask({ page, base, artifacts, width, fixture }) {
     await gate;
     await route.fulfill({ response }).catch(() => {});
   });
+  const beforeDetailWaits = `Activity before metadata stall at ${width}px`;
+  appendNative(native, { type: "message", message: { role: "assistant", content: beforeDetailWaits } });
   await refresh().click();
-  await page.waitForTimeout(2500);
-  assert.equal(detailRequests, 1, "a slow detail read cannot overlap a polling load");
+  await timeline.locator("summary").getByText(beforeDetailWaits, { exact: true }).waitFor();
+  assert.equal(detailRequests, 1);
+  const whileDetailWaits = `Activity continues while task metadata waits at ${width}px`;
+  appendNative(native, { type: "message", message: { role: "assistant", content: whileDetailWaits } });
+  await timeline.locator("summary").getByText(whileDetailWaits, { exact: true }).waitFor({ timeout: 6000 });
+  assert.equal(detailRequests, 1, "metadata reads remain serial while context polling continues");
   const stable = readFileSync(native.path, "utf8");
   await close();
   await openChild(read.description);
   release();
   await page.waitForTimeout(500);
-  assert.equal(await page.getByRole("tab", { name: "Sub-agent Metadata independent of context", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("tab", { name: "Sub-agent Metadata independent of stalled context", exact: true }).count(), 0);
   assertReadOnly(stable);
   await page.unroute(detailRoute);
   await close();
