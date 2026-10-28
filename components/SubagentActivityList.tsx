@@ -21,7 +21,7 @@ export function SubagentActivityList({ activities }: { activities: readonly Suba
                 <details>
                   <summary style={{ cursor: "pointer", fontSize: 11, minHeight: 36 }}>
                     <span style={{ display: "inline-flex", width: "calc(100% - 18px)", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "4px 10px" }}>
-                      <strong style={{ fontWeight: 600, overflowWrap: "anywhere", minWidth: 0 }}>{activity.toolName || t("subagent.activity.message")}</strong>
+                      <strong style={{ fontWeight: 600, overflowWrap: "anywhere", minWidth: 0 }}>{activity.toolName || t("subagent.activity.message")}{index === 0 && !activity.toolName && !activity.isError && <span style={{ color: "var(--accent)", fontWeight: 400 }}> · {t("subagent.activity.latestUpdate")}</span>}</strong>
                       {activity.isError && <span style={{ color: "#dc2626" }}>{t("agentSwitcher.status.failed")}</span>}
                       {activity.timestamp !== undefined && (
                         <time dateTime={new Date(activity.timestamp).toISOString()} title={new Date(activity.timestamp).toLocaleString(locale)} style={{ color: "var(--text-dim)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", marginLeft: "auto" }}>

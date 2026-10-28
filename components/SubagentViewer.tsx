@@ -4,8 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { MessageView } from "./MessageView";
 import { StatusIcon, statusColor, UsageLine, useAgentUsage } from "./AgentSessionPanel";
 import { SubagentActivityList } from "./SubagentActivityList";
+import { SubagentTaskDetails } from "./SubagentTaskDetails";
 import { getSubagentActivities } from "@/lib/subagent-progress";
-import { buildToolResultsMap, EMPTY_TRANSCRIPT, mergeTailPage, prependOlderPage, type SubagentTranscript } from "./subagent-viewer-state";
+import { buildToolResultsMap, EMPTY_TRANSCRIPT, getSubagentTaskView, mergeTailPage, prependOlderPage, type SubagentDetailRun, type SubagentTranscript } from "./subagent-viewer-state";
 import { useI18n } from "@/hooks/useI18n";
 import type { SessionInfo } from "@/lib/types";
 
@@ -14,6 +15,7 @@ interface Props {
   /** Label from the subagent tool call (`description || profile`), used until the session info loads. */
   fallbackLabel: string;
   running: boolean;
+  onLabelChange?: (sessionId: string, label: string) => void;
   onOpenFile: (filePath: string, page?: number) => void;
 }
 
@@ -45,10 +47,14 @@ function toTranscript(page: Partial<SubagentTranscript>): SubagentTranscript {
  * subagent run. Entry-level granularity: pi appends each finished entry
  * synchronously, so a 2 s poll shows the run at message/tool-call resolution.
  */
-export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }: Props) {
+export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile, onLabelChange }: Props) {
   const { t, locale } = useI18n();
   const [info, setInfo] = useState<SessionInfo | null>(null);
-  const [label, setLabel] = useState(fallbackLabel);
+  const [run, setRun] = useState<SubagentDetailRun | null>(null);
+  const [metadataError, setMetadataError] = useState(false);
+  const taskView = getSubagentTaskView(run, info?.name || info?.firstMessage || fallbackLabel);
+  const label = taskView.label;
+  useEffect(() => { onLabelChange?.(sessionId, label); }, [sessionId, label, onLabelChange]);
   const [transcript, setTranscript] = useState<SubagentTranscript>(EMPTY_TRANSCRIPT);
   const { messages, entryIds, oldestEntryId, hasMore } = transcript;
   const transcriptRef = useRef(transcript);
@@ -76,14 +82,13 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { info?: SessionInfo; error?: string };
         if (!data.info) throw new Error(data.error ?? `HTTP ${res.status}`);
-        setInfo(data.info);
-        setLabel(data.info.name || data.info.firstMessage || fallbackLabel);
+        if (!controller.signal.aborted) setInfo(data.info);
       } catch {
         /* non-fatal: the context view below is the primary content */
       }
     })();
     return () => controller.abort();
-  }, [sessionId, running, refreshKey, fallbackLabel]);
+  }, [sessionId, running, refreshKey]);
 
   // Initial context load; while the subagent runs, poll for new entries. Each
   // poll is the newest page, folded into the older pages already loaded.
@@ -91,10 +96,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
     const controller = new AbortController();
     let cancelled = false;
     let inFlight = false;
-    const load = async () => {
-      // One request at a time: a slow answer must not land after a newer one.
-      if (inFlight) return;
-      inFlight = true;
+    const loadContext = async () => {
       try {
         const res = await fetch(contextUrl(sessionId), { signal: controller.signal, cache: "no-store" });
         if (res.status === 404) {
@@ -111,9 +113,30 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
         if (!cancelled && !(err instanceof Error && err.name === "AbortError")) {
           setError(err instanceof Error ? err.message : String(err));
         }
-      } finally {
-        inFlight = false;
       }
+    };
+    const loadDetail = async () => {
+      try {
+        const res = await fetch(`/api/subagents/${encodeURIComponent(sessionId)}`, { signal: controller.signal, cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { run?: SubagentDetailRun };
+        if (!data.run) throw new Error("Missing run");
+        if (cancelled) return;
+        setRun(data.run);
+        setMetadataError(false);
+      } catch {
+        if (!cancelled) {
+          // A failed read cannot prove that a previous snapshot is still current.
+          setRun(null);
+          setMetadataError(true);
+        }
+      }
+    };
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      await Promise.allSettled([loadContext(), loadDetail()]);
+      inFlight = false;
     };
     void load();
     if (!running) {
@@ -153,7 +176,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { context: Partial<SubagentTranscript> };
       // A poll replaced the transcript meanwhile: this page no longer joins on.
-      if (transcriptRef.current.oldestEntryId !== cursor) return;
+      if (controller.signal.aborted || transcriptRef.current.oldestEntryId !== cursor) return;
       const el = listRef.current;
       prependAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
       setTranscript((current) => prependOlderPage(current, cursor, toTranscript(data.context)));
@@ -184,7 +207,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
 
   const toolResults = useMemo(() => buildToolResultsMap(messages), [messages]);
   const relation = info?.relation?.kind === "subagent" ? info.relation : null;
-  const status = running ? "running" as const : relation?.status ?? "completed" as const;
+  const status = running ? "running" as const : run?.status ?? relation?.status ?? "completed" as const;
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -242,6 +265,15 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
         style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "10px 0" }}
         lang={locale}
       >
+        {usage && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", padding: "6px 16px 12px", borderBottom: "1px solid var(--border)" }}>
+            {relation?.profile && <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{relation.profile}</span>}
+            <UsageLine usage={usage} />
+            <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("session.toolCalls")}: {usage.toolCalls.toLocaleString(locale)}</span>
+          </div>
+        )}
+        <SubagentTaskDetails key={taskView.runId ?? taskView.task ?? "recorded"} view={taskView} />
+        {metadataError && <p role="status" style={{ padding: "8px 16px", margin: 0, color: "var(--text-dim)", fontSize: 11 }}>{t("subagent.task.unavailable")}</p>}
         {notFound ? (
           <div style={{ padding: "24px 16px", color: "var(--text-muted)", fontSize: 12, textAlign: "center" }}>
             {running ? t("subagent.viewer.starting") : t("subagent.viewer.error")}
@@ -253,13 +285,6 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
           </div>
         ) : (
           <>
-            {usage && (
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", padding: "6px 16px 12px", borderBottom: "1px solid var(--border)" }}>
-                {relation?.profile && <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{relation.profile}</span>}
-                <UsageLine usage={usage} />
-                <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("session.toolCalls")}: {usage.toolCalls.toLocaleString(locale)}</span>
-              </div>
-            )}
             {error && <div role="alert" style={{ padding: "8px 16px", color: "#dc2626", fontSize: 12 }}>{t("subagent.viewer.error")}: {error}</div>}
             <SubagentActivityList activities={activities} />
             {running && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 16px 16px", color: "var(--text-dim)", fontSize: 11 }}><StatusIcon status="running" />{t("subagent.activity.waiting")}</div>}

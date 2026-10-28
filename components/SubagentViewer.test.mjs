@@ -1,6 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildToolResultsMap, EMPTY_TRANSCRIPT, mergeTailPage, prependOlderPage } from "./subagent-viewer-state.ts";
+import { getSubagentTaskView, buildToolResultsMap, EMPTY_TRANSCRIPT, mergeTailPage, prependOlderPage } from "./subagent-viewer-state.ts";
+
+test("current task wins over polluted labels, preserving full text with a Unicode-safe title", () => {
+  const task = "Inspect\n  viewer " + "😀".repeat(120);
+  const view = getSubagentTaskView({ task: "bounded task", taskInfo: { runId: "A", task, instructions: "Keep\n  spacing <script>" } }, "Injected planning rule");
+  assert.equal(view.task, task);
+  assert.equal(view.instructions, "Keep\n  spacing <script>");
+  assert.equal(view.label, "Inspect viewer " + "😀".repeat(105));
+  assert.equal(Array.from(view.label).length, 120);
+  assert.equal(view.separated, true);
+  assert.equal(view.runId, "A");
+});
+
+test("resume without a snapshot or guidance never inherits prior instructions", () => {
+  assert.equal(getSubagentTaskView({ taskInfo: { runId: "A", task: "A", instructions: "old" } }, "fallback").instructions, "old");
+  assert.deepEqual(getSubagentTaskView({ task: "Recorded\n task" }, "fallback"), {
+    label: "Recorded task", task: "Recorded\n task", instructions: null, separated: false, runId: null,
+  });
+  assert.equal(getSubagentTaskView({ taskInfo: { runId: "B", task: "B" } }, "fallback").instructions, null);
+  assert.deepEqual(getSubagentTaskView(null, "fallback"), { label: "fallback", task: null, instructions: null, separated: false, runId: null });
+  assert.equal(getSubagentTaskView({ taskInfo: { runId: "B", task: " \n " } }, "fallback").label, "fallback");
+  assert.equal(getSubagentTaskView(null, "  Fallback\n label  ").label, "Fallback label");
+});
 
 const message = (id) => ({ role: "user", content: id });
 const page = (ids, { hasMore = false, oldest = ids[0] ?? null } = {}) => ({

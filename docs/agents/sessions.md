@@ -4,6 +4,8 @@
 
 The installed `subagent` extension now owns spawning and continuation. Native `subagent:run` records feed the existing session families and running poll, not a second in-process wrapper; native children are read-only here and resume through the parent's tool. The scanner's exact-handle overlay also groups proven historical extension children without rewriting their files or filtering `Task:` titles. Active native children prevent even direct family deletion; their owner must stop them first. See [subagents.md](subagents.md) for the contract and historical snapshot compatibility.
 
+The read-only subagent viewer publishes its current task label through a stable AppShell callback. It updates only an existing matching agent tab when the label differs; late callbacks never append/reopen tabs or change selection. Fallback-label changes are display-only, not dependencies of metadata/context fetch effects.
+
 ## AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id in `globalThis.__piSessions` (`globalThis` survives Next.js hot reload; a module-level Map does not). Concurrent `startRpcSession()` calls share one start Promise (`globalThis.__piStartLocks`). Idle timeout: 10 minutes (`PI_WEB_IDLE_TIMEOUT_MS`, `0` disables).
 - Stop cannot cancel a run awaiting a promise that ignores the abort signal (a third-party extension handler or tool): `inner.abort()` never returns. So Stop (`abort`, `abort_bash`) sets `forceShutdownOnIdle` and arms the idle timer, shutting the wrapper down one idle timeout after the first Stop even while it runs. Later commands (a reload's `get_tools`, Stop again) must not push that deadline back; with `PI_WEB_IDLE_TIMEOUT_MS=0` it still arms, at 10 minutes.

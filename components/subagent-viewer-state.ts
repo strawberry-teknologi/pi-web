@@ -1,4 +1,28 @@
 import type { AgentMessage, ToolResultMessage } from "@/lib/types";
+import type { SubagentRunInfo } from "@/lib/subagents";
+import type { NativeSubagentTask } from "@/lib/native-subagent-records";
+
+export type SubagentDetailRun = SubagentRunInfo & { taskInfo?: NativeSubagentTask };
+export type SubagentTaskView = { label: string; task: string | null; instructions: string | null; separated: boolean; runId: string | null };
+
+export function getSubagentTaskView(run: SubagentDetailRun | null, fallbackLabel: string): SubagentTaskView {
+  const snapshot = run?.taskInfo;
+  const task = snapshot?.task ?? run?.task ?? null;
+  const label = (task?.trim() ? task : fallbackLabel).replace(/\s+/g, " ").trim();
+  return {
+    label: Array.from(label).slice(0, 120).join(""),
+    task,
+    instructions: snapshot?.instructions || null,
+    separated: Boolean(snapshot),
+    runId: snapshot?.runId ?? null,
+  };
+}
+
+export function updateSubagentTabLabel<T extends { sessionId: string; label: string }>(tabs: T[], sessionId: string, label: string): T[] {
+  if (!tabs.some((tab) => tab.sessionId === sessionId && tab.label !== label)) return tabs;
+  return tabs.map((tab) => tab.sessionId === sessionId ? { ...tab, label } : tab);
+}
+
 
 /** One page of `GET /api/sessions/[id]/context`, or what the viewer holds. */
 export interface SubagentTranscript {

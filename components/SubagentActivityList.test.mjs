@@ -44,6 +44,14 @@ test("each activity has its own initially collapsed disclosure with complete ent
   assert.match(html, /white-space:pre-wrap/);
 });
 
+test("only the actual first non-error assistant receives the latest marker", () => {
+  const assistant = { id: "assistant", preview: "Recorded prose", isError: false };
+  const tool = { id: "tool", toolName: "read", preview: "viewer.tsx", isError: false };
+  assert.equal((render([tool, assistant]).match(/Latest update/g) ?? []).length, 1);
+  assert.doesNotMatch(render([assistant, tool]), /Latest update/);
+  assert.doesNotMatch(render([{ ...assistant, isError: true }]), /Latest update/);
+});
+
 test("pending calls and empty results do not repeat the preview as output", () => {
   for (const details of [{ input: '{ "path": "README.md" }' }, { input: '{ "path": "README.md" }', output: "" }]) {
     const html = render([{ id: "read", toolName: "read", preview: "README.md", isError: false, details }]);

@@ -17,6 +17,7 @@ import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
+import { updateSubagentTabLabel } from "./subagent-viewer-state";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -1223,6 +1224,10 @@ export function AppShell() {
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
+
+  const handleSubagentLabelChange = useCallback((sessionId: string, label: string) => {
+    setAgentTabs((tabs) => updateSubagentTabLabel(tabs, sessionId, label));
+  }, []);
 
   // The agent switcher's side-panel button: opens a subagent's tab, or closes
   // it when the open panel already has it (the panel closes with its last tab).
@@ -2783,6 +2788,7 @@ export function AppShell() {
               key={activeAgentTab.sessionId}
               sessionId={activeAgentTab.sessionId}
               fallbackLabel={activeAgentTab.label}
+              onLabelChange={handleSubagentLabelChange}
               running={runningSessionIds.has(activeAgentTab.sessionId)}
               onOpenFile={handleOpenLinkedFile}
             />
