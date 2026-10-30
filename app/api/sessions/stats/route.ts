@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getRpcSession } from "@/lib/rpc-manager";
-import { buildSessionContext, openSessionManager, resolveSessionPath } from "@/lib/session-reader";
+import { buildSessionContext, getSessionSettings, openSessionManager, resolveSessionPath } from "@/lib/session-reader";
 import { getSubagentActivities } from "@/lib/subagent-progress";
 import { computeSessionStats, type SessionUsageSummary } from "@/lib/session-stats";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
@@ -65,6 +65,7 @@ async function readSummary(id: string): Promise<SessionUsageSummary | null> {
     cost: stats.cost,
     toolCalls: stats.toolCalls,
     totalActiveMs: computeSessionTotalActiveMs(entries),
+    ...getSessionSettings(entries as unknown as SessionEntry[], leafId),
     latestActivity,
   };
   summaries.set(sm, { entryCount: entries.length, lastEntryId, leafId, summary });

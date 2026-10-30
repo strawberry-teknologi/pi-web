@@ -187,9 +187,16 @@ function AgentRow({
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
   const status: SubagentSessionStatus = running ? "running" : relation?.status ?? "completed";
   const primary = main ? t("agentSwitcher.main") : relation?.description || sessionTitle(session);
-  const secondary = main
-    ? sessionTitle(session)
-    : `${relation?.profile ?? t("agentSwitcher.subagent")} · ${formatRelativeTime(session.modified, locale)}`;
+  const profile = relation?.profile ?? t("agentSwitcher.subagent");
+  const modelId = usage?.model?.modelId;
+  const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
+  const secondary = main ? sessionTitle(session) : profile;
+  const secondaryTitle = main ? secondary : [
+    profile,
+    usage?.model ? `${usage.model.provider}/${usage.model.modelId}` : undefined,
+    thinkingLevel,
+    formatRelativeTime(session.modified, locale),
+  ].filter(Boolean).join(" · ");
 
   return (
     <div
@@ -242,8 +249,13 @@ function AgentRow({
           <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: selected ? 600 : 500 }} title={primary}>
             {primary}
           </span>
-          <span style={{ display: "block", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 11 }} title={secondary}>
-            {secondary}
+          <span style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 2, minWidth: 0, whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 11 }} title={secondaryTitle}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", flexShrink: modelId && !main ? 0 : 1, maxWidth: modelId && !main ? "40%" : undefined }}>{secondary}</span>
+            {!main && modelId && <>
+              <span aria-hidden="true">·</span>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{modelId}</span>
+            </>}
+            {!main && thinkingLevel && <span style={{ flexShrink: 0 }}>· {thinkingLevel}</span>}
           </span>
           {!main && usage?.latestActivity && (
             <span title={[usage.latestActivity.toolName, usage.latestActivity.preview, usage.latestActivity.output].filter(Boolean).join(" · ")} style={{ display: "block", marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: usage.latestActivity.isError ? "#dc2626" : "var(--text-muted)", fontFamily: usage.latestActivity.toolName ? "var(--font-mono)" : undefined, fontSize: 11 }}>
