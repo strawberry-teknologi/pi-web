@@ -17,6 +17,7 @@ import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { NATIVE_SUBAGENT_TYPE, readNativeSubagentRecord, nativeSubagentRun, type NativeSubagentRecord } from './native-subagent-records';
 import { nativeSubagentStatus, rememberNativeSubagent } from './native-subagents';
+import { readSideRelation } from "./side-session";
 import { checkSessionMembership, listSessionsIncremental, scanSessionFileInfo, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
@@ -188,46 +189,48 @@ export function mergeSessionLists(
 }
 
 type ScannedSubagent = NonNullable<ReturnType<typeof readSubagentRun>>;
+type ScannedSide = NonNullable<ReturnType<typeof readSideRelation>>;
 
 /**
- * A fork's or subagent's run, read from its file, per scanned row. The scanner
- * hands back the same row object while the file's size and mtime stay the same
- * and a new one once they change, so the row is the cache key: every list
- * rebuild re-read ~140 subagent files synchronously (~36 ms of blocked event
- * loop) though only the session that just ran had changed.
+ * A subagent's run or a side chat's parent, read from its file, per scanned
+ * row. The scanner hands back the same row object while the file's size and
+ * mtime stay the same and a new one once they change, so the row is the cache
+ * key: every list rebuild re-read ~140 subagent files synchronously (~36 ms of
+ * blocked event loop) though only the session that just ran had changed.
  */
-const scannedSubagentRuns = new WeakMap<ScannedSessionInfo, ScannedSubagent | null>();
+const scannedSubagentRuns = new WeakMap<ScannedSessionInfo, { subagent: ScannedSubagent | null; side: ScannedSide | null }>();
 const scannedNativeRecords = new WeakMap<ScannedSessionInfo, NativeSubagentRecord>();
 
 function resolveScannedSessionRelation(
   scanned: ScannedSessionInfo,
   pathToId: Map<string, string>,
-): { originSessionId?: string; subagent: ScannedSubagent | null } {
+): { originSessionId?: string; subagent: ScannedSubagent | null; side: ScannedSide | null } {
   const originSessionId = scanned.parentSessionPath
     ? pathToId.get(sessionPathKey(scanned.parentSessionPath))
     : undefined;
   if (scanned.nativeSubagent?.sessionId === scanned.id) {
     const record = scanned.nativeSubagent;
     rememberNativeSubagent(record, scanned.path);
-    return { originSessionId, subagent: { ...nativeSubagentRun(record, scanned.path), status: nativeSubagentStatus(record) } };
+    return { originSessionId, subagent: { ...nativeSubagentRun(record, scanned.path), status: nativeSubagentStatus(record) }, side: null };
   }
-  if (!scanned.parentSessionPath) return { originSessionId, subagent: null };
+  if (!scanned.parentSessionPath) return { originSessionId, subagent: null, side: null };
 
   const cached = scannedSubagentRuns.get(scanned);
   if (cached !== undefined) {
     const record = scannedNativeRecords.get(scanned);
-    return { originSessionId, subagent: cached && record ? { ...cached, status: nativeSubagentStatus(record) } : cached };
+    return { originSessionId, subagent: cached.subagent && record ? { ...cached.subagent, status: nativeSubagentStatus(record) } : cached.subagent, side: cached.side };
   }
   try {
     const entries = readSessionRelationEntries(scanned.path);
     const record = readNativeSubagentRecord(entries, scanned.id);
     if (record) scannedNativeRecords.set(scanned, record);
     const subagent = readSubagentRun(entries, scanned.id, scanned.path);
-    scannedSubagentRuns.set(scanned, subagent);
-    return { originSessionId, subagent };
+    const side = subagent ? null : readSideRelation(entries);
+    scannedSubagentRuns.set(scanned, { subagent, side });
+    return { originSessionId, subagent, side };
   } catch {
     // Malformed or concurrently removed session: read it again next time.
-    return { originSessionId, subagent: null };
+    return { originSessionId, subagent: null, side: null };
   }
 }
 
@@ -252,7 +255,7 @@ function mapScannedSession(
   pathToId: Map<string, string>,
 ): SessionInfo {
   cacheSessionPath(scanned.id, scanned.path);
-  const { originSessionId, subagent } = resolveScannedSessionRelation(scanned, pathToId);
+  const { originSessionId, subagent, side } = resolveScannedSessionRelation(scanned, pathToId);
   const detailsPending = scanned.detailsPending === true;
   return {
     path: scanned.path,
@@ -270,9 +273,11 @@ function mapScannedSession(
     parentSessionId: originSessionId,
     ...(subagent
       ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
-      : scanned.parentSessionPath
-        ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
-        : {}),
+      : side
+        ? { relation: { kind: "side" as const, ...side } }
+        : scanned.parentSessionPath
+          ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
+          : {}),
     transient: false,
     ...(detailsPending ? { detailsPending: true } : {}),
   };

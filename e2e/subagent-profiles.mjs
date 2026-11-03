@@ -34,6 +34,7 @@ export async function checkSubagentProfiles(page, { base, project, artifacts }) 
     const section = settings.getByRole('combobox',{name:'Settings',exact:true});
     if(await section.isVisible()) await section.selectOption('agents');
     else await settings.getByRole('button',{name:'Sub-agents',exact:true}).click();
+    await settings.getByRole('button',{name:profile.name,exact:true}).click();
     await settings.getByRole('textbox',{name:'Description',exact:true}).waitFor();
   };
   const rows = settings.locator('.agents-model-row');

@@ -5,6 +5,7 @@ import { buildSessionContext, getSessionSettings, openSessionManager, resolveSes
 import { getSubagentActivities } from "@/lib/subagent-progress";
 import { computeSessionStats, type SessionUsageSummary } from "@/lib/session-stats";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { sideOwnEntries } from "@/lib/side-session";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
 import type { SessionEntry } from "@/lib/types";
 
@@ -59,12 +60,13 @@ async function readSummary(id: string): Promise<SessionUsageSummary | null> {
     if (latestActivity || !context.hasMore || tail >= entries.length) break;
     tail = Math.min(tail * 2, entries.length);
   }
-  const stats = computeSessionStats(entries as unknown as SessionEntry[]);
+  const ownEntries = sideOwnEntries(entries);
+  const stats = computeSessionStats(ownEntries as unknown as SessionEntry[]);
   const summary: SessionUsageSummary = {
     tokens: stats.tokens,
     cost: stats.cost,
     toolCalls: stats.toolCalls,
-    totalActiveMs: computeSessionTotalActiveMs(entries),
+    totalActiveMs: computeSessionTotalActiveMs(ownEntries as typeof entries),
     ...getSessionSettings(entries as unknown as SessionEntry[], leafId),
     latestActivity,
   };
