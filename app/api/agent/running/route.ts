@@ -14,6 +14,10 @@ export const dynamic = "force-dynamic";
 // sessionUiStateRevision (null when unreadable) tells the sidebar its pins and
 // archive changed elsewhere; it costs one stat while the file is unchanged.
 // Native descendants keep their parents active without a built-in completion queue.
+// subagentsActiveSessionIds: sessions whose subagents can still start a run
+// there, so the sidebar announces their completion only after the last one.
+// serverNow: this server's clock, which stamps reads (`readAt`); a browser
+// dates its unread markers on it (lib/unread-markers.ts), never on its own.
 export async function GET() {
   const parents = new Set([...(globalThis.__piNativeSubagents?.values() ?? [])].map(({ run }) => run.parentSessionId));
   return NextResponse.json(
@@ -24,6 +28,7 @@ export async function GET() {
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       subagentsActiveSessionIds: [...parents].filter(hasRunningNativeSubagent),
       sessionUiStateRevision: getSessionUiStateRevision(),
+      serverNow: Date.now(),
     },
     { headers: { "Cache-Control": "no-store" } },
   );
