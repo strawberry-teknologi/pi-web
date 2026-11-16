@@ -653,6 +653,8 @@ export class AgentSessionWrapper {
         this.lastRunAborted = false;
       }
       if (event.type === "agent_settled") this.lastRunAborted = event.aborted === true;
+      // New input changes activity order before the reply finishes.
+      if (event.type === "message_end" && (event.message as { role?: unknown } | undefined)?.role === "user") invalidateSessionListCache();
       if (event.type === "agent_end") {
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
