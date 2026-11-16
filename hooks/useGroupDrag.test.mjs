@@ -86,7 +86,7 @@ function session(id, project, modified) {
 }
 
 function model(projects) {
-  return buildSessionTree({
+  const tree = buildSessionTree({
     sessions: projects.map((project, index) => session(`s${index}`, project, BASE - index)),
     uiState: { version: 1, revision: 0, sessions: {}, projects: {}, projectOrder: projects },
     runningIds: new Set(),
@@ -97,6 +97,10 @@ function model(projects) {
     moreShown: {},
     pinnedCollapsed: false,
   });
+  // Gesture coordinates below exercise collapsed groups without the Active section.
+  tree.rows = tree.rows.filter((row) => row.kind !== "active-header"
+    && !(row.kind === "session" && row.context === "active") && row.key !== "active-spacer");
+  return tree;
 }
 
 const GHOST_HEIGHT = 22;

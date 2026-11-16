@@ -489,6 +489,52 @@ test("the favicon counts sessions that finished while the tab was hidden (#1484)
   );
 });
 
+test("clicking a visible session row does not reveal its project duplicate below", async () => {
+  const { locateSessionRow, revealScrollTop } = await jiti.import("@/lib/session-tree.ts");
+  const sessions = [session("previous"), session("clicked")];
+  const input = treeInput({ sessions, currentProject: { key: "/work/alpha", root: "/work/alpha" } });
+  const { rows } = buildSessionTree(input);
+  const offsets = getRowOffsets(rows, "desktop");
+  const effect = between("  useEffect(() => {\n    if (selectedSessionId !== openRevealSessionIdRef.current)", "\n\n  // Fork (the row menu's F)");
+  const compile = (code) => ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+
+  for (const mainTreeShown of [true, false]) {
+    let scrollTop = 0;
+    const context = vm.createContext({
+      ...input,
+      allSessions: sessions,
+      runningSessionIds: input.runningIds,
+      shownGroupExpansion: input.groupExpansion,
+      selectedSessionId: "previous",
+      mainTreeShown,
+      loading: false, uiStateLoaded: true, sidebarPrefsRestored: true,
+      openRevealRef: { current: null },
+      openRevealSessionIdRef: { current: "previous" },
+      openRevealFocusRef: { current: null },
+      treeRevealIdRef: { current: 0 },
+      useCallback: (fn) => fn,
+      useEffect: (fn) => fn(),
+      locateSessionRow,
+      setPinnedCollapsed: noop, savePinnedCollapsed: noop, saveGroupChoices: noop,
+      setTreeReveal: (request) => {
+        const index = rows.findIndex((row) => row.key === request.rowKey);
+        scrollTop = revealScrollTop(offsets, index, scrollTop, 130, request.block) ?? scrollTop;
+      },
+    });
+    context.handleSelectSessionFromList = (selected) => { context.selectedSessionId = selected.id; };
+    const select = vm.runInContext(`${compile(callbackBody("handleSelectFamily"))}\nhandleSelectFamily`, context);
+    select({ root: sessions[1] });
+    assert.equal(context.selectedSessionId, "clicked");
+    vm.runInContext(compile(effect), context);
+    assert.equal(scrollTop, 0, "a click on Active must not scroll to the group row");
+    // An external selection still reveals its project row when the tree becomes visible.
+    context.mainTreeShown = true;
+    if (mainTreeShown) context.selectedSessionId = "previous";
+    vm.runInContext(compile(effect), context);
+    assert.ok(scrollTop > 0, "archive/external selections still reveal their row");
+  }
+});
+
 test("every way of opening a session reveals its row through one effect keyed on the selected id (#1595)", () => {
   const effect = between("const mainTreeShown = ", "\n  // Fork (the row menu's F)");
   // The tree is on the page: its tab (or no tabs), no archive view and no search results over it.

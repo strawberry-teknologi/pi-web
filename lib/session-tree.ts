@@ -40,6 +40,7 @@ export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, n
   desktop: { "active-header": 28, "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
   mobile: { "active-header": 44, "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
 };
+export const ACTIVE_RECENT_LIMIT = 5;
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
 /** How many more families each "show more" click reveals. */
@@ -425,9 +426,9 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
 
   let archivedCount = 0;
   const pinnedFamilies: SessionFamily[] = [];
-  // Running or unread families, pinned ones aside: a pinned row already shows
-  // them right below the section.
+  // Recent, running or unread families; pins already have their own section.
   const activeFamilies: SessionFamily[] = [];
+  let recentCount = 0;
   // Insertion order follows family activity (newest first).
   const projectFamilies = new Map<string, SessionFamily[]>();
   const projectActivity = new Map<string, number>();
@@ -449,7 +450,8 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
       continue;
     }
     const status = familyStatus(family, input);
-    if (status.running || status.unread) activeFamilies.push(family);
+    if (recentCount < ACTIVE_RECENT_LIMIT || status.running || status.unread) activeFamilies.push(family);
+    recentCount++;
     const list = projectFamilies.get(key);
     if (list) list.push(family);
     else projectFamilies.set(key, [family]);
@@ -458,8 +460,8 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   // A spacer keeps the first section's header off the toolbar's line (#1338).
   const rows: SidebarRow[] = [{ kind: "spacer", key: "top-spacer" }];
 
-  // Active section: what the user must look at, running or not yet read, in
-  // family activity order, whatever project it belongs to.
+  // Keep the latest five even after reading, plus running/unread extras,
+  // all in family activity order across projects.
   if (activeFamilies.length > 0) {
     rows.push({ kind: "active-header", key: "active-header", count: activeFamilies.length });
     for (const family of activeFamilies) {

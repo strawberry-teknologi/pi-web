@@ -2435,8 +2435,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     : null;
 
   const handleSelectFamily = useCallback((family: SessionFamily) => {
+    if (mainTreeShown) {
+      // The clicked row is already visible; do not reveal its project duplicate.
+      openRevealSessionIdRef.current = family.root.id;
+      openRevealRef.current = null;
+    }
     handleSelectSessionFromList(family.root);
-  }, [handleSelectSessionFromList]);
+  }, [handleSelectSessionFromList, mainTreeShown]);
 
   // Every group at once: a group's menu, or Alt+click on its header.
   // Re-inserted, so the choices count as the newest ones kept.

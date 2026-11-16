@@ -123,7 +123,7 @@ test("forks an idle session on disk without starting it, and the copy is a row o
     pinnedCollapsed: false,
   });
   assert.deepEqual(
-    rows.filter((row) => row.kind === "session").map((row) => row.key).sort(),
+    rows.filter((row) => row.kind === "session" && row.context === "group").map((row) => row.key).sort(),
     [`session:group:${body.sessionId}`, `session:group:${source.id}`].sort(),
   );
 });
