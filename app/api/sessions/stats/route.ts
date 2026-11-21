@@ -3,7 +3,7 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 import { getRpcSession } from "@/lib/rpc-manager";
 import { buildSessionContext, getSessionSettings, openSessionManager, resolveSessionPath } from "@/lib/session-reader";
 import { getSubagentActivities } from "@/lib/subagent-progress";
-import { computeSessionStats, type SessionUsageSummary } from "@/lib/session-stats";
+import { computeSessionStats, MAX_SESSION_STATS_IDS, type SessionUsageSummary } from "@/lib/session-stats";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { sideOwnEntries } from "@/lib/side-session";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
@@ -17,7 +17,6 @@ export const dynamic = "force-dynamic";
 // never starts an AgentSession. The switcher polls this while an agent runs,
 // so a summary is reused until its session gains an entry.
 
-const MAX_SESSION_STATS_IDS = 200;
 const NO_STORE = { "Cache-Control": "no-store" };
 
 type SessionManagerLike = ReturnType<typeof openSessionManager>;
